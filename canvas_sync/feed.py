@@ -100,9 +100,33 @@ def classify(uid: str) -> str:
 
 def _split_course(summary: str) -> tuple[str, str | None]:
     match = _COURSE_SUFFIX.match(summary)
-    if match:
-        return match["title"], match["course"].strip()
-    return summary, None
+    if not match:
+        return summary, None
+    title, course = match["title"], match["course"].strip()
+    # Section overrides repeat the section name in the title, e.g.
+    # "Chapter 4 Homework (CS-170-01 DISCRETE STRUCTURES (2026FA))"; drop that part.
+    section = title.rfind(f" ({course}")
+    if section > 0 and title.endswith(")"):
+        title = title[:section]
+    return title, course
+
+
+_ICAL_ESCAPES = re.compile(r"\\([\\;,nN])")
+
+
+def _unescape_ical(text: str) -> str:
+    """Undo iCal text escaping (\\, \\; \\n \\\\).
+
+    icalendar does this for standard fields like DESCRIPTION, but not for
+    nonstandard ones like Canvas's X-ALT-DESC.
+    """
+    return _ICAL_ESCAPES.sub(lambda m: "\n" if m[1] in "nN" else m[1], text)
+
+
+def _description(comp) -> str:
+    if "X-ALT-DESC" in comp:  # HTML version, if Canvas sent one
+        return html_to_text(_unescape_ical(str(comp["X-ALT-DESC"])))
+    return html_to_text(str(comp.get("DESCRIPTION", "")))
 
 
 def parse_feed(data: bytes) -> list[CanvasItem]:
@@ -121,7 +145,6 @@ def parse_feed(data: bytes) -> list[CanvasItem]:
         title, course = _split_course(summary)
         dtend = comp.get("DTEND")
         url = str(comp["URL"]) if "URL" in comp else None
-        description = comp.get("X-ALT-DESC") or comp.get("DESCRIPTION") or ""
         items.append(
             CanvasItem(
                 uid=uid,
@@ -131,7 +154,7 @@ def parse_feed(data: bytes) -> list[CanvasItem]:
                 start=dtstart.dt,
                 end=dtend.dt if dtend is not None else None,
                 url=url,
-                description=html_to_text(str(description)),
+                description=_description(comp),
             )
         )
     return items

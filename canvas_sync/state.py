@@ -24,6 +24,8 @@ class StateError(Exception):
 class SyncState:
     calendar_id: str | None = None
     events: dict[str, str] = field(default_factory=dict)  # Canvas UID -> Google event ID
+    tasklist_id: str | None = None
+    tasks: dict[str, str] = field(default_factory=dict)  # Canvas UID -> Google task ID
     path: Path = STATE_FILE
 
     @classmethod
@@ -41,9 +43,17 @@ class SyncState:
         return cls(
             calendar_id=data.get("calendar_id"),
             events=dict(data.get("events", {})),
+            tasklist_id=data.get("tasklist_id"),
+            tasks=dict(data.get("tasks", {})),
             path=path,
         )
 
     def save(self) -> None:
-        data = {"version": STATE_VERSION, "calendar_id": self.calendar_id, "events": self.events}
+        data = {
+            "version": STATE_VERSION,
+            "calendar_id": self.calendar_id,
+            "events": self.events,
+            "tasklist_id": self.tasklist_id,
+            "tasks": self.tasks,
+        }
         write_private_file(self.path, json.dumps(data, indent=2, sort_keys=True))

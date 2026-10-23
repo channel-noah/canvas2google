@@ -50,7 +50,7 @@ def html_to_text(html: str) -> str:
     parser.feed(html)
     parser.close()
     text = strip_control_chars("".join(parser.parts))
-    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"[ \t ]+", " ", text)  #   is a non-breaking space (&nbsp;)
     text = re.sub(r" *\n *", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
