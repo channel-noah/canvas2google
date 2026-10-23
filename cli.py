@@ -11,9 +11,11 @@ from google.auth.exceptions import GoogleAuthError
 from googleapiclient.errors import HttpError
 from httplib2 import HttpLib2Error
 
+from canvas_sync.calendar_sync import sync_events
 from canvas_sync.config import ConfigError, load_feed_url
 from canvas_sync.feed import CanvasItem, FeedError, fetch_feed, parse_feed, upcoming
 from canvas_sync.google_client import AuthError, build_services, get_credentials, list_all
+from canvas_sync.state import StateError, SyncState
 
 
 def _truncate(text: str, width: int) -> str:
@@ -123,6 +125,39 @@ def check_google() -> int:
     return 0
 
 
+def sync_events_command(items: list[CanvasItem]) -> int:
+    try:
+        state = SyncState.load()
+        calendar, _ = build_services(get_credentials())
+        result = sync_events(calendar, items, state)
+    except (AuthError, StateError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    except HttpError as exc:
+        print(f"Error: Google refused a request (HTTP {exc.resp.status}). Progress so far is saved.", file=sys.stderr)
+        return 1
+    except (OSError, HttpLib2Error, GoogleAuthError) as exc:
+        print(f"Error: couldn't reach Google ({type(exc).__name__}). Progress so far is saved.", file=sys.stderr)
+        return 1
+
+    if result.calendar_created:
+        print('Created the "Canvas" calendar in Google Calendar.')
+    for title in result.created:
+        print(f"  + created: {_truncate(title, 70)}")
+    for title in result.adopted:
+        print(f"  = re-linked existing Google event: {_truncate(title, 70)}")
+    print(
+        f"\nEvents: {len(result.created)} created, {len(result.adopted)} re-linked, "
+        f"{result.already_synced} already synced."
+    )
+    if result.missing_from_feed:
+        # Left alone on purpose: removing items from Google is out of scope for now.
+        print(f"{len(result.missing_from_feed)} synced event(s) are no longer in the Canvas feed (left unchanged):")
+        for uid in result.missing_from_feed:
+            print(f"  ? {uid}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Never crash on an emoji in a course title, whatever the console encoding.
     sys.stdout.reconfigure(errors="replace")
@@ -135,6 +170,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check-google", action="store_true", help="sign in to Google and list calendars/task lists"
     )
+    parser.add_argument(
+        "--sync-events", action="store_true", help='sync Canvas events into the "Canvas" Google calendar'
+    )
     args = parser.parse_args(argv)
 
     if args.check_google:
@@ -146,6 +184,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
+    if args.sync_events:
+        return sync_events_command(items)
     if args.inspect:
         print_inspection(items)
     elif args.all:

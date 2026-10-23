@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any, Callable
 
 import google_auth_httplib2
@@ -13,7 +12,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-from .config import PROJECT_ROOT, restrict_permissions
+from .config import PROJECT_ROOT, restrict_permissions, write_private_file
 
 # Least privilege:
 # - calendar.app.created: create calendars, and manage events only on calendars this
@@ -36,12 +35,7 @@ class AuthError(Exception):
 
 
 def _save_token(creds: Credentials) -> None:
-    # Create the file owner-only from the start (on Linux/macOS), so there's no
-    # moment where it exists with looser permissions.
-    fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(creds.to_json())
-    restrict_permissions(TOKEN_FILE)
+    write_private_file(TOKEN_FILE, creds.to_json())
 
 
 def _load_saved_token() -> Credentials | None:

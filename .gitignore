@@ -4,6 +4,7 @@ credentials.json
 token.json
 sync_state.json
 *.ics
+*.tmp
 
 # --- Python ---
 .venv/

@@ -26,6 +26,20 @@ def restrict_permissions(path: Path) -> None:
         path.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
 
+def write_private_file(path: Path, text: str) -> None:
+    """Write a secret file atomically, readable only by its owner (on Linux/macOS).
+
+    Writes to a temporary file first, then swaps it into place in one step, so a
+    crash mid-write can never leave a half-written file behind.
+    """
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
+    restrict_permissions(path)
+
+
 def load_feed_url() -> str:
     restrict_permissions(ENV_FILE)
     load_dotenv(ENV_FILE)
