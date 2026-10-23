@@ -7,8 +7,13 @@ import sys
 from collections import Counter, defaultdict
 from urllib.parse import urlsplit
 
+from google.auth.exceptions import GoogleAuthError
+from googleapiclient.errors import HttpError
+from httplib2 import HttpLib2Error
+
 from canvas_sync.config import ConfigError, load_feed_url
 from canvas_sync.feed import CanvasItem, FeedError, fetch_feed, parse_feed, upcoming
+from canvas_sync.google_client import AuthError, build_services, get_credentials, list_all
 
 
 def _truncate(text: str, width: int) -> str:
@@ -82,6 +87,42 @@ def print_inspection(items: list[CanvasItem]) -> None:
         print()
 
 
+def _show_list(label: str, method, name_key: str, forbidden_note: str = "") -> None:
+    print(f"{label}:")
+    try:
+        entries = list_all(method)
+    except HttpError as exc:
+        print(f"  Google refused this request (HTTP {exc.resp.status}).")
+        if exc.resp.status == 403 and forbidden_note:
+            print(f"  {forbidden_note}")
+        return
+    except (OSError, HttpLib2Error, GoogleAuthError) as exc:
+        print(f"  Couldn't reach Google ({type(exc).__name__}).")
+        return
+    if not entries:
+        print("  (none)")
+    for entry in entries:
+        print(f"  - {entry.get(name_key, '(untitled)')}")
+
+
+def check_google() -> int:
+    """Sign in (if needed) and list what this app can see in Google."""
+    try:
+        calendar, tasks = build_services(get_credentials())
+    except AuthError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    print("Signed in to Google.\n")
+    _show_list(
+        "Calendars this app can access",
+        calendar.calendarList().list,
+        "summary",
+        forbidden_note="Expected: the calendar.app.created scope can't list calendars this app didn't create.",
+    )
+    _show_list("Task lists", tasks.tasklists().list, "title")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Never crash on an emoji in a course title, whatever the console encoding.
     sys.stdout.reconfigure(errors="replace")
@@ -91,7 +132,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--inspect", action="store_true", help="summarize UID/URL patterns used to classify items"
     )
+    parser.add_argument(
+        "--check-google", action="store_true", help="sign in to Google and list calendars/task lists"
+    )
     args = parser.parse_args(argv)
+
+    if args.check_google:
+        return check_google()
 
     try:
         items = parse_feed(fetch_feed(load_feed_url()))
