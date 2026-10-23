@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from typing import Any, Callable
 
 import google_auth_httplib2
@@ -78,6 +79,11 @@ def get_credentials(allow_browser: bool = True) -> Credentials:
     restrict_permissions(CREDENTIALS_FILE)
     try:
         flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
+        # The library's code-for-token exchange has no timeout and run_local_server
+        # can't pass one through, so give that one request a default timeout.
+        flow.oauth2session.fetch_token = functools.partial(
+            flow.oauth2session.fetch_token, timeout=HTTP_TIMEOUT
+        )
         creds = flow.run_local_server(
             host="localhost",
             port=0,  # any free port
