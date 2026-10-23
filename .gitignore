@@ -1,0 +1,11 @@
+# --- Secrets: must never be committed ---
+.env
+credentials.json
+token.json
+sync_state.json
+*.ics
+
+# --- Python ---
+.venv/
+__pycache__/
+*.pyc

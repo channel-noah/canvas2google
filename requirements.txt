@@ -1,0 +1,13 @@
+# Direct dependencies
+icalendar==7.3.0
+python-dotenv==1.2.4
+requests==2.34.2
+
+# Pulled in by the packages above (pinned so installs are reproducible)
+certifi==2026.10.23
+charset-normalizer==3.5.2
+idna==3.20
+python-dateutil==3.0.0
+six==1.17.0
+tzdata==2026.5
+urllib3==2.8.0
