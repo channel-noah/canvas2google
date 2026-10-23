@@ -134,48 +134,54 @@ def _print_missing(kind: str, uids: list[str]) -> None:
             print(f"  ? {uid}")
 
 
+def _print_changes(result: EventSyncResult | TaskSyncResult, kind: str, container: str) -> None:
+    """Print the per-item changes shared by event and task results."""
+    would = "would be " if result.dry_run else ""
+    created = getattr(result, "calendar_created", False) or getattr(result, "tasklist_created", False)
+    if created:
+        print(f'The "Canvas" {container} {would or "was "}created.')
+    for verb, mark, titles in (("created", "+", result.created), ("updated", "~", result.updated)):
+        for title in titles:
+            print(f"  {mark} {would}{verb}: {_truncate(title, 70)}")
+    for title in result.relinked:
+        print(f"  = {would}re-linked to existing Google {kind}: {_truncate(title, 70)}")
+
+
 def print_event_result(result: EventSyncResult) -> None:
     print("== Events -> Google Calendar ==")
-    if result.calendar_created:
-        print('Created the "Canvas" calendar in Google Calendar.')
-    for title in result.created:
-        print(f"  + created: {_truncate(title, 70)}")
-    for title in result.adopted:
-        print(f"  = re-linked existing Google event: {_truncate(title, 70)}")
+    _print_changes(result, "event", "calendar")
     print(
-        f"Events: {len(result.created)} created, {len(result.adopted)} re-linked, "
-        f"{result.already_synced} already synced."
+        f"Events: {len(result.created)} new, {len(result.updated)} changed, "
+        f"{len(result.relinked)} re-linked, {result.unchanged} unchanged."
     )
     _print_missing("event", result.missing_from_feed)
 
 
 def print_task_result(result: TaskSyncResult) -> None:
     print("== Assignments -> Google Tasks ==")
-    if result.tasklist_created:
-        print('Created the "Canvas" task list in Google Tasks.')
-    for title in result.created:
-        print(f"  + created: {_truncate(title, 70)}")
-    for title in result.relinked:
-        print(f"  = re-linked existing Google task: {_truncate(title, 70)}")
+    _print_changes(result, "task", "task list")
     print(
-        f"Assignments: {len(result.created)} created, {len(result.relinked)} re-linked, "
-        f"{result.already_synced} already synced, {result.skipped_past_due} past due (skipped)."
+        f"Assignments: {len(result.created)} new, {len(result.updated)} changed, "
+        f"{len(result.relinked)} re-linked, {result.unchanged} unchanged, "
+        f"{result.skipped_past_due} past due (skipped)."
     )
     _print_missing("assignment", result.missing_from_feed)
     for title in result.possible_duplicates:
         print(f"  ! section override may duplicate a regular assignment: {_truncate(title, 60)}")
 
 
-def sync_command(items: list[CanvasItem], events: bool, tasks: bool) -> int:
+def sync_command(items: list[CanvasItem], events: bool, tasks: bool, dry_run: bool) -> int:
+    if dry_run:
+        print("DRY RUN: reading only. Nothing in Google or sync_state.json will change.\n")
     try:
         state = SyncState.load()
         calendar, tasks_service = build_services(get_credentials())
         if events:
-            print_event_result(sync_events(calendar, items, state))
+            print_event_result(sync_events(calendar, items, state, dry_run=dry_run))
         if tasks:
             if events:
                 print()
-            print_task_result(sync_tasks(tasks_service, items, state))
+            print_task_result(sync_tasks(tasks_service, items, state, dry_run=dry_run))
     except (AuthError, StateError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
@@ -206,7 +212,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--sync-tasks", action="store_true", help='sync upcoming assignments into the "Canvas" task list'
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="show what syncing would change without changing anything (implies both syncs if neither is given)",
+    )
     args = parser.parse_args(argv)
+    if args.dry_run and not (args.sync_events or args.sync_tasks):
+        args.sync_events = args.sync_tasks = True
 
     if args.check_google:
         return check_google()
@@ -218,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if args.sync_events or args.sync_tasks:
-        return sync_command(items, events=args.sync_events, tasks=args.sync_tasks)
+        return sync_command(items, events=args.sync_events, tasks=args.sync_tasks, dry_run=args.dry_run)
     if args.inspect:
         print_inspection(items)
     elif args.all:
