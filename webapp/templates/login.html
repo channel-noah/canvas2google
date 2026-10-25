@@ -1,10 +1,52 @@
 {% extends "base.html" %}
-{% block title %}Sign in · Canvas2Google{% endblock %}
+{% block title %}Canvas2Google · Canvas assignments in Google Tasks and Calendar{% endblock %}
 {% block content %}
-<section class="card narrow center">
-  <h1>Canvas → Google, automatically</h1>
-  <p class="muted">Syncs your Canvas assignments to Google Tasks and your Canvas events to Google Calendar.</p>
-  <a class="button primary" href="{{ url_for('auth.start') }}">Sign in with Google</a>
-  <p class="fine">{% if signup_mode == "invite" %}Access is limited to invited accounts. {% endif %}The app only asks for calendars it creates and your Google Tasks. <a href="{{ url_for('public.privacy') }}">Privacy policy</a></p>
+<section class="hero">
+  <h1>Your Canvas due dates, in Google Tasks and Calendar. Automatically.</h1>
+  <p class="lead">Canvas2Google copies your Canvas <strong>assignments into Google Tasks</strong> and your Canvas
+    <strong>events into Google Calendar</strong>, and keeps them up to date every day.</p>
+  <a class="button primary big" href="{{ url_for('auth.start') }}">Sign in with Google</a>
+  {% if signup_mode == "invite" %}
+    <p class="fine">Access is limited to invited accounts for now.</p>
+  {% endif %}
 </section>
+
+<section class="card">
+  <h2>How it works</h2>
+  <ol class="steps">
+    <li><strong>Sign in with Google.</strong> No new password; Canvas2Google never sees your Google password.</li>
+    <li><strong>Paste your Canvas calendar feed link.</strong> In Canvas: <em>Calendar → Calendar Feed</em>.</li>
+    <li><strong>That's it.</strong> Assignments appear in a Google Tasks list named “Canvas” and events in a Google
+      Calendar named “Canvas”. Changes in Canvas are updated daily, and you can sync any time.</li>
+  </ol>
+  <img class="shot" src="{{ url_for('static', filename='dashboard-demo.jpg') }}"
+       alt="The Canvas2Google dashboard, showing upcoming assignments and recent syncs (demo data)" width="799" height="737">
+  <p class="fine center">Dashboard with demo data.</p>
+</section>
+
+<section class="card">
+  <h2>What it asks Google for, and why</h2>
+  <table>
+    <thead><tr><th>Permission</th><th>Why it's needed</th></tr></thead>
+    <tbody>
+      <tr><td>Your email address</td><td>To recognize you when you sign in.</td></tr>
+      <tr><td>Calendars this app creates</td><td>To create the “Canvas” calendar and keep its events in sync. It <strong>can't see
+        or change your other calendars</strong>.</td></tr>
+      <tr><td>Google Tasks</td><td>To create the “Canvas” task list and keep its tasks in sync. It only works in that list.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Built with security in mind</h2>
+  <ul class="checks">
+    <li>Your Canvas feed link and Google access are <strong>encrypted</strong>, with the key kept separate from the database.</li>
+    <li>Your data is used only to run the sync. It's never sold, shared, or used for ads.</li>
+    <li>Delete your account any time: everything is removed and Google access is revoked.</li>
+    <li>The code is <a href="https://github.com/channel-noah/canvas2google">open source</a>, with a public
+      <a href="https://github.com/channel-noah/canvas2google/blob/main/THREAT_MODEL.md">threat model</a>.</li>
+  </ul>
+</section>
+
+<p class="fine center">A student project. Not affiliated with Instructure (Canvas) or Google.</p>
 {% endblock %}

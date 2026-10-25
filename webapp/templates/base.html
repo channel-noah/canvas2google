@@ -29,6 +29,9 @@
     {% endwith %}
     {% block content %}{% endblock %}
   </main>
-  <footer class="foot"><a href="{{ url_for('public.privacy') }}">Privacy policy</a></footer>
+  <footer class="foot">
+    <a href="{{ url_for('public.privacy') }}">Privacy policy</a>
+    <a href="{{ url_for('public.terms') }}">Terms of service</a>
+  </footer>
 </body>
 </html>

@@ -100,7 +100,17 @@ td { border-bottom: 1px solid var(--border); padding: 7px 8px; vertical-align: t
 .changes .add { color: var(--ok); }
 .changes .chg { color: var(--accent); }
 
+.hero { text-align: center; padding: 32px 16px 24px; }
+.hero h1 { font-size: 30px; line-height: 1.25; max-width: 720px; margin: 0 auto 12px; }
+.lead { font-size: 17px; color: var(--muted); max-width: 640px; margin: 0 auto 20px; }
+.button.big { padding: 12px 24px; font-size: 16px; }
+.steps { padding-left: 22px; }
+.steps li { margin-bottom: 8px; }
+.checks { padding-left: 20px; }
+.checks li { margin-bottom: 6px; }
+.shot { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: var(--radius); margin-top: 12px; }
 .foot { text-align: center; padding: 8px 16px 32px; font-size: 13px; }
+.foot a + a { margin-left: 16px; }
 .foot a { color: var(--muted); }
 .danger { border-color: var(--bad); }
 .button.dangerous { background: var(--bad); border-color: var(--bad); color: #fff; }

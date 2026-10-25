@@ -121,7 +121,7 @@ There are five trust boundaries:
 
 ```bash
 pip install -r requirements-dev.txt
-pytest --cov=canvas_sync --cov=webapp      # 181 tests; network is blocked inside tests
+pytest --cov=canvas_sync --cov=webapp      # 191 tests; network is blocked inside tests
 pip-audit -r requirements.txt
 bandit -r canvas_sync webapp cli.py app.py scripts
 git status --ignored                       # .env, .env.production, credentials.json, token.json, instance/ must be ignored (!!)

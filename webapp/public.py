@@ -17,6 +17,11 @@ def privacy():
     return render_template("privacy.html")
 
 
+@bp.get("/terms")
+def terms():
+    return render_template("terms.html")
+
+
 @bp.get(f"/{GOOGLE_VERIFICATION_FILE}")
 def google_site_verification():
     return Response(f"google-site-verification: {GOOGLE_VERIFICATION_FILE}", mimetype="text/html")

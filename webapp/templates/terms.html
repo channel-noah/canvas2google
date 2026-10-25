@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Terms of service · Canvas2Google{% endblock %}
+{% block content %}
+<section class="card narrow prose">
+  <h1>Terms of service</h1>
+  <p class="fine">Last updated: October 25, 2026</p>
+
+  <p>Canvas2Google is a free student project that copies your Canvas assignments and events into Google Tasks
+    and Google Calendar. By signing in, you agree to these terms. If you don't agree, please don't use it.</p>
+
+  <h2>Using the service</h2>
+  <ul>
+    <li>Use only <strong>your own</strong> Canvas calendar feed and your own Google account.</li>
+    <li>Don't try to access other people's data, get around the site's limits or security, or overload it.
+      Automated or excessive requests may be blocked.</li>
+    <li>You're responsible for keeping your Canvas feed link and Google account secure.</li>
+  </ul>
+
+  <h2>What the service does and doesn't promise</h2>
+  <ul>
+    <li>Canvas2Google is provided <strong>“as is”, without any warranty</strong>. Syncs can be delayed, incomplete or
+      wrong, for example if Canvas or Google change, or the service is down. <strong>Always check due dates in Canvas</strong>;
+      Canvas is the source of truth, and Canvas2Google isn't responsible for missed deadlines.</li>
+    <li>The service may change, pause, limit new accounts, or shut down at any time. Features and limits
+      (like how often syncs run) may change.</li>
+    <li>To the fullest extent the law allows, the developer isn't liable for any damages arising from using the service.</li>
+  </ul>
+
+  <h2>Your data</h2>
+  <p>How your data is handled is described in the <a href="{{ url_for('public.privacy') }}">privacy policy</a>.
+    You can delete your account at any time from <strong>Settings → Delete my account</strong>. Events and tasks
+    already copied to your Google account stay there unless you delete them.</p>
+
+  <h2>Ending access</h2>
+  <p>You can stop using the service and delete your account at any time. Accounts that break these terms may be
+    removed.</p>
+
+  <h2>Not affiliated</h2>
+  <p>Canvas2Google isn't affiliated with, endorsed by, or sponsored by Instructure (Canvas) or Google.
+    “Canvas” and “Google” are trademarks of their respective owners.</p>
+
+  <h2>Changes and contact</h2>
+  <p>These terms may be updated; the date above shows the latest version. Questions? Use the support email
+    shown on Google's sign-in consent screen for Canvas2Google.</p>
+</section>
+{% endblock %}

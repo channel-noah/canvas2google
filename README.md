@@ -94,7 +94,7 @@ pip install -r requirements.txt -r requirements-dev.txt
 pytest --cov=canvas_sync --cov=webapp
 ```
 
-- **181 tests, about 92% coverage, runs in a few seconds.**
+- **191 tests, about 92% coverage, runs in a few seconds.**
 - **The network is blocked inside every test**, so nothing can reach Canvas or a real Google account. Google is replaced by in-memory fakes that record every write and mimic `PATCH` semantics.
 - Covers parsing edge cases, sync behavior (create / no-op / update / dry run / re-link / recreate), sign-in rules (bad `state`, non-allowlisted accounts, missing scopes), CSRF, encryption at rest, XSS escaping, SSRF inputs, the cron secret, HTTPS cookie flags, time zones across DST, and lock exclusivity across connections.
 - **The tests themselves were tested** by deliberately planting bugs (disabling CSRF, removing the allowlist, breaking the lock, dropping the time zone). Every one was caught, and one gap was found and fixed along the way.
