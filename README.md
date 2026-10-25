@@ -149,3 +149,7 @@ A few things the project taught me, each written up in [THREAT_MODEL.md §5](THR
 ## About
 
 Built by **Noah ([@channel-noah](https://github.com/channel-noah))**, a cybersecurity student, as a hands-on project in Python, APIs, OAuth and secure web development, working with an AI pair programmer ([Claude Code](https://claude.com/claude-code)). Not affiliated with Instructure or Google.
+
+## License
+
+[MIT](LICENSE)
