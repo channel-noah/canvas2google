@@ -45,4 +45,15 @@
     expired, or after the app's Google settings change.</p>
   <a class="button" href="{{ url_for('auth.start', consent='1') }}">Reconnect Google</a>
 </section>
+
+<section class="card narrow danger">
+  <h2>Delete my account</h2>
+  <p class="muted">Removes your feed link, Google access, sync records and history from this site, and
+    revokes its access to your Google account. Events and tasks already in Google stay there.</p>
+  <form method="post" action="{{ url_for('views.delete_account') }}" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="check"><input type="checkbox" name="confirm" required> I understand this can't be undone</label>
+    <button class="button dangerous" type="submit">Delete my account</button>
+  </form>
+</section>
 {% endblock %}

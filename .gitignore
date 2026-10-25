@@ -1,5 +1,7 @@
 # --- Secrets: must never be committed ---
 .env
+.env.*
+!.env.example
 credentials.json
 token.json
 sync_state.json

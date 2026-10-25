@@ -9,7 +9,7 @@ import pytest
 from cryptography.fernet import Fernet
 
 from fakes import FakeCalendarService, FakeTasksService
-from helpers import ALLOWED, FEED, SAMPLE_FEED, csrf_token, db_rows, make_item
+from helpers import ALLOWED, FEED, SAMPLE_FEED, csrf_token, db_file, db_rows, make_item
 from webapp import oauth, sync_runner, views
 from webapp.crypto import SecretBox, SecretError, secret_context
 from webapp.db import get_db
@@ -30,7 +30,7 @@ def test_security_headers_are_set(client):
     assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
     assert headers["X-Frame-Options"] == "DENY"
     assert headers["X-Content-Type-Options"] == "nosniff"
-    assert headers["Referrer-Policy"] == "no-referrer"
+    assert headers["Referrer-Policy"] == "same-origin"  # never sent to other sites
     assert headers["Cache-Control"] == "no-store"
 
 
@@ -142,7 +142,7 @@ def test_posts_without_csrf_token_are_rejected(logged_in, app):
 def test_feed_url_is_stored_encrypted_and_never_shown(logged_in, app, user_id):
     logged_in.post("/settings", data={"feed_url": FEED, "csrf_token": csrf_token(logged_in)})
 
-    raw_db = app.config["DATABASE_PATH"].read_bytes()
+    raw_db = db_file(app).read_bytes()
     assert b"SECRETFEED123" not in raw_db  # not in the database file, even in raw bytes
     page = logged_in.get("/settings").get_data(as_text=True)
     assert "school.instructure.com" in page and "SECRETFEED123" not in page

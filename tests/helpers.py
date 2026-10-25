@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import sqlite3
 from datetime import date, datetime
 
 from canvas_sync.feed import CanvasItem
@@ -18,11 +17,15 @@ def csrf_token(client, path: str = "/settings") -> str:
 
 
 def db_rows(app, sql: str, *args) -> list[tuple]:
-    conn = sqlite3.connect(app.config["DATABASE_PATH"])
-    try:
-        return conn.execute(sql, args).fetchall()
-    finally:
-        conn.close()
+    """Run raw SQL against the test database (tests only; app code never does this)."""
+    with app.extensions["db_engine"].connect() as conn:
+        return [tuple(row) for row in conn.exec_driver_sql(sql, tuple(args))]
+
+
+def db_file(app):
+    from pathlib import Path
+
+    return Path(app.extensions["db_engine"].url.database)
 
 
 def save_feed_and_token(app, user_id: int) -> None:

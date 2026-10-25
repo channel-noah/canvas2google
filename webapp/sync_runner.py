@@ -7,11 +7,11 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import sqlite3
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from google.auth.exceptions import GoogleAuthError, RefreshError
+from sqlalchemy import Connection
 from google.oauth2.credentials import Credentials
 from googleapiclient.errors import HttpError
 from httplib2 import HttpLib2Error
@@ -37,12 +37,12 @@ class SyncOutcome:
     needs_sign_in: bool = False
 
 
-def load_feed_url(db: sqlite3.Connection, box: SecretBox, user_id: int) -> str | None:
+def load_feed_url(db: Connection, box: SecretBox, user_id: int) -> str | None:
     blob = store.get_secret(db, user_id, "feed_url")
     return box.decrypt(blob, secret_context(user_id, "feed_url")) if blob else None
 
 
-def load_credentials(db: sqlite3.Connection, box: SecretBox, user_id: int) -> Credentials | None:
+def load_credentials(db: Connection, box: SecretBox, user_id: int) -> Credentials | None:
     blob = store.get_secret(db, user_id, "google_token")
     if not blob:
         return None
@@ -50,11 +50,11 @@ def load_credentials(db: sqlite3.Connection, box: SecretBox, user_id: int) -> Cr
     return Credentials.from_authorized_user_info(info)
 
 
-def _save_credentials(db: sqlite3.Connection, box: SecretBox, user_id: int, creds: Credentials) -> None:
+def _save_credentials(db: Connection, box: SecretBox, user_id: int, creds: Credentials) -> None:
     store.set_secret(db, user_id, "google_token", box.encrypt(creds.to_json(), secret_context(user_id, "google_token")))
 
 
-def user_timezone(db: sqlite3.Connection, user_id: int) -> ZoneInfo:
+def user_timezone(db: Connection, user_id: int) -> ZoneInfo:
     user = store.get_user(db, user_id)
     try:
         return ZoneInfo(user["timezone"])
@@ -63,7 +63,7 @@ def user_timezone(db: sqlite3.Connection, user_id: int) -> ZoneInfo:
 
 
 def run_sync(
-    db: sqlite3.Connection, box: SecretBox, user_id: int, dry_run: bool, trigger: str = "manual"
+    db: Connection, box: SecretBox, user_id: int, dry_run: bool, trigger: str = "manual"
 ) -> SyncOutcome:
     # One sync per user at a time, even across processes (scheduler, cron job,
     # button click). Two overlapping runs could both decide an item is new and
@@ -78,7 +78,7 @@ def run_sync(
 
 
 def _run_locked(
-    db: sqlite3.Connection, box: SecretBox, user_id: int, dry_run: bool, trigger: str
+    db: Connection, box: SecretBox, user_id: int, dry_run: bool, trigger: str
 ) -> SyncOutcome:
     run_id = store.start_run(db, user_id, dry_run, trigger)
     outcome = SyncOutcome(ok=False, dry_run=dry_run)

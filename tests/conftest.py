@@ -44,7 +44,8 @@ def app(tmp_path):
         google_client_id="client-id.apps.googleusercontent.com",
         google_client_secret="client-secret",
         allowed_emails=frozenset({ALLOWED}),
-        database_path=tmp_path / "test.db",
+        database_url="sqlite:///" + (tmp_path / "test.db").as_posix(),
+        cron_secret="c" * 40,
     )
     app = create_app(settings)
     app.config["TESTING"] = True

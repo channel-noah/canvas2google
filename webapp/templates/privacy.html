@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Privacy policy · Canvas2Google{% endblock %}
+{% block content %}
+<section class="card narrow prose">
+  <h1>Privacy policy</h1>
+  <p class="fine">Last updated: October 24, 2026</p>
+
+  <p>Canvas2Google copies your Canvas assignments into Google Tasks and your Canvas calendar events
+    into a Google Calendar named “Canvas”. This page explains what it stores and why.</p>
+
+  <h2>What we store</h2>
+  <ul>
+    <li><strong>Your Google account email and ID</strong>, to recognize you when you sign in.</li>
+    <li><strong>Your Canvas calendar feed link</strong>, <em>encrypted</em>, so the app can read your Canvas calendar.</li>
+    <li><strong>Google access tokens</strong>, <em>encrypted</em>, so the app can update your “Canvas” calendar and tasks while you're away.</li>
+    <li><strong>Sync records</strong>: which Canvas item matches which Google event or task, plus a short history of recent syncs (including assignment titles).</li>
+    <li><strong>Your preferences</strong>: time zone and whether automatic sync is on.</li>
+  </ul>
+
+  <h2>What we access in Google</h2>
+  <ul>
+    <li><strong>Google Calendar:</strong> only calendars this app creates. It can't see or change your other calendars.</li>
+    <li><strong>Google Tasks:</strong> the app creates and updates tasks in a list named “Canvas”.</li>
+  </ul>
+  <p>Canvas2Google's use and transfer of information received from Google APIs adheres to the
+    <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>,
+    including the Limited Use requirements. Your data is used only to provide the sync. It is never sold,
+    shared with third parties, used for advertising, or used to train AI models.</p>
+
+  <h2>How it's protected</h2>
+  <ul>
+    <li>All traffic uses HTTPS.</li>
+    <li>Feed links and Google tokens are encrypted in the database with a key stored separately from it.</li>
+    <li>Sign-in is through Google; this site never sees your Google password.</li>
+  </ul>
+
+  <h2>Deleting your data</h2>
+  <ul>
+    <li>Signed in, go to <strong>Settings → Delete my account</strong>. That removes everything listed above and
+      revokes this app's Google access. Events and tasks already copied to your Google account stay there;
+      delete the “Canvas” calendar and task list in Google if you don't want them.</li>
+    <li>You can also remove access any time at
+      <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
+  </ul>
+
+  <h2>Contact</h2>
+  <p>Questions? Use the support email shown on Google's sign-in consent screen for Canvas2Google.</p>
+</section>
+{% endblock %}

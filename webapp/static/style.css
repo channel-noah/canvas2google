@@ -100,6 +100,13 @@ td { border-bottom: 1px solid var(--border); padding: 7px 8px; vertical-align: t
 .changes .add { color: var(--ok); }
 .changes .chg { color: var(--accent); }
 
+.foot { text-align: center; padding: 8px 16px 32px; font-size: 13px; }
+.foot a { color: var(--muted); }
+.danger { border-color: var(--bad); }
+.button.dangerous { background: var(--bad); border-color: var(--bad); color: #fff; }
+.prose ul { padding-left: 20px; }
+.prose li { margin-bottom: 6px; }
+
 @media (max-width: 640px) {
   .top { padding: 12px 16px; }
   .card { padding: 16px; }

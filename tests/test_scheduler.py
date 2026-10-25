@@ -11,7 +11,7 @@ from canvas_sync.config import ConfigError
 from fakes import FakeCalendarService, FakeTasksService
 from helpers import SAMPLE_FEED, csrf_token, db_rows, make_item, save_feed_and_token
 from webapp import scheduler, sync_runner, views
-from webapp.db import get_db, init_db, release_lock, try_lock, upsert_user
+from webapp.db import get_db, init_db, release_lock, try_lock, update_preferences, upsert_user
 
 
 @pytest.fixture
@@ -37,17 +37,11 @@ def test_lock_is_exclusive_until_released(app):
 
 
 def test_lock_is_exclusive_across_separate_connections(app):
-    # Separate connections stand in for separate processes (scheduler vs. web worker).
-    first = sqlite3.connect(app.config["DATABASE_PATH"])
-    second = sqlite3.connect(app.config["DATABASE_PATH"])
-    for conn in (first, second):
-        conn.row_factory = sqlite3.Row
-    try:
+    # Separate connections stand in for separate processes (cron call vs. button click).
+    engine = app.extensions["db_engine"]
+    with engine.connect() as first, engine.connect() as second:
         assert try_lock(first, "sync:user:1")
         assert not try_lock(second, "sync:user:1")
-    finally:
-        first.close()
-        second.close()
 
 
 def test_expired_lock_can_be_taken_over(app):
@@ -75,8 +69,7 @@ def test_scheduled_sync_covers_opted_in_users_only(app, user_id, fake_google):
     with app.app_context():
         db = get_db()
         other = upsert_user(db, "sub-2", "other@example.com")
-        db.execute("UPDATE users SET auto_sync = 0 WHERE id = ?", (other,))
-        db.commit()
+        update_preferences(db, other, "America/New_York", auto_sync=False)
     save_feed_and_token(app, other)
 
     results = scheduler.sync_all_users(app)
@@ -169,8 +162,7 @@ def test_sync_uses_users_time_zone_not_the_servers(app, user_id, fake_google):
     save_feed_and_token(app, user_id)
     with app.app_context():
         db = get_db()
-        db.execute("UPDATE users SET timezone = 'Pacific/Honolulu' WHERE id = ?", (user_id,))
-        db.commit()
+        update_preferences(db, user_id, "Pacific/Honolulu", auto_sync=True)
 
     scheduler.sync_all_users(app)
     (task,) = [t for t in fake_google.tasks.tasks_by_id.values() if t["title"].startswith("Homework 3")]
@@ -191,9 +183,13 @@ def test_old_database_is_upgraded_in_place(tmp_path):
     conn.commit()
     conn.close()
 
-    fake_app = SimpleNamespace(config={"DATABASE_PATH": path}, teardown_appcontext=lambda f: f)
+    fake_app = SimpleNamespace(
+        config={"DATABASE_URL": "sqlite:///" + path.as_posix()}, extensions={}, teardown_appcontext=lambda f: f
+    )
     init_db(fake_app)
+    fake_app.extensions["db_engine"].dispose()  # release the file so it can be reopened/deleted on Windows
     conn = sqlite3.connect(path)
     assert conn.execute("SELECT email, timezone, auto_sync FROM users").fetchall() == [("a@b.c", None, 1)]
     assert "trigger" in {r[1] for r in conn.execute("PRAGMA table_info(sync_runs)")}
+    assert "job_locks" in {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     conn.close()

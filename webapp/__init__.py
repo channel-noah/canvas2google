@@ -3,6 +3,7 @@
 Run locally with:            flask --app webapp run
 ...with automatic syncing:   flask --app "webapp:create_app(start_scheduler=True)" run
 One-off sync for cron:       flask --app webapp sync-all
+On Vercel:                   app.py exposes `app`; a daily cron calls /tasks/sync-all
 """
 
 from __future__ import annotations
@@ -14,13 +15,14 @@ from datetime import timedelta
 import click
 from flask import Flask, render_template
 from flask_wtf.csrf import CSRFError, CSRFProtect
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from canvas_sync.display import when_text
 from canvas_sync.state import SyncState
 
-from . import auth, scheduler, views
+from . import auth, public, scheduler, tasks, views
 from .crypto import SecretBox
-from .db import get_db, init_db, load_state, save_state
+from .db import find_user_id, get_db, init_db, load_state, save_state
 from .settings import Settings, load_settings
 
 # Content Security Policy: the browser may only load our own stylesheet. No
@@ -55,7 +57,7 @@ def create_app(settings: Settings | None = None, start_scheduler: bool = False) 
         SECRET_KEY=settings.secret_key,
         SETTINGS=settings,
         SECRET_BOX=SecretBox(settings.encryption_key),
-        DATABASE_PATH=settings.database_path,
+        DATABASE_URL=settings.database_url,
         # Session cookie: not readable by JavaScript, not sent on cross-site
         # requests, HTTPS-only once deployed, and expires after 12 hours.
         SESSION_COOKIE_HTTPONLY=True,
@@ -65,22 +67,32 @@ def create_app(settings: Settings | None = None, start_scheduler: bool = False) 
         PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
         MAX_CONTENT_LENGTH=16 * 1024,  # forms here are tiny; reject big uploads
     )
+    if settings.secure_cookies:
+        # On Vercel, HTTPS ends at Vercel's proxy, which forwards plain HTTP and
+        # says so in X-Forwarded-* headers. Trusting exactly one proxy hop lets the
+        # app see requests as HTTPS, which turns on Flask-WTF's same-site check.
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
     logging.getLogger("werkzeug").addFilter(RedactQueryStrings())
-    CSRFProtect(app)  # every POST must carry a token only our pages know
+    csrf = CSRFProtect(app)  # every POST must carry a token only our pages know
     init_db(app)
     app.register_blueprint(auth.bp)
     app.register_blueprint(views.bp)
+    app.register_blueprint(public.bp)
+    app.register_blueprint(tasks.bp)
+    csrf.exempt(tasks.bp)  # called by the cron service with a secret token, not a browser form
     app.add_template_filter(when_text, "when")
     app.add_template_global(settings.sync_interval_hours, "sync_interval_hours")
+    app.add_template_global(settings.site_verification, "site_verification")
 
     @app.after_request
     def security_headers(response):
         response.headers["Content-Security-Policy"] = CSP
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
-        # Keeps OAuth codes and page URLs out of Referer headers sent to other sites.
-        response.headers["Referrer-Policy"] = "no-referrer"
+        # Never send our URLs (which can carry OAuth codes) to other sites. Same-site
+        # requests keep the Referer, which Flask-WTF checks on HTTPS form posts.
+        response.headers["Referrer-Policy"] = "same-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         response.headers["Cache-Control"] = "no-store"  # pages show personal data
         if settings.secure_cookies:
@@ -96,13 +108,13 @@ def create_app(settings: Settings | None = None, start_scheduler: bool = False) 
         already created, instead of creating a second "Canvas" calendar.
         """
         db = get_db()
-        row = db.execute("SELECT id FROM users WHERE email = ?", (email.lower(),)).fetchone()
-        if row is None:
+        user_id = find_user_id(db, email)
+        if user_id is None:
             raise click.ClickException("No web user with that email. Sign in on the website first.")
-        if load_state(db, row["id"]) is not None:
+        if load_state(db, user_id) is not None:
             raise click.ClickException("That account already has sync records; refusing to overwrite them.")
         state = SyncState.load()  # validates and migrates the file
-        save_state(db, row["id"], state.to_dict())
+        save_state(db, user_id, state.to_dict())
         click.echo(f"Imported {len(state.events)} event(s) and {len(state.tasks)} task(s).")
 
     @app.cli.command("sync-all")

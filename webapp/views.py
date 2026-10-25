@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from urllib.parse import urlsplit
 
-from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, g, redirect, render_template, request, session, url_for
 
 from canvas_sync.config import ConfigError, validate_feed_url
 from canvas_sync.feed import FeedError, fetch_feed, parse_feed, upcoming
 
-from . import sync_runner
+from . import oauth, sync_runner
 from .auth import login_required
 from .crypto import SecretError, secret_context
-from .db import get_db, recent_runs, set_secret, update_preferences
+from .db import delete_user, get_db, recent_runs, set_secret, update_preferences
 
 bp = Blueprint("views", __name__)
 
@@ -98,6 +98,31 @@ def save_preferences():
         update_preferences(get_db(), g.user["id"], timezone, request.form.get("auto_sync") == "on")
         flash("Preferences saved.", "ok")
     return redirect(url_for("views.settings_page"))
+
+
+@bp.post("/settings/delete")
+@login_required
+def delete_account():
+    if request.form.get("confirm") != "on":
+        flash("Tick the box to confirm deleting your account.", "error")
+        return redirect(url_for("views.settings_page"))
+    db = get_db()
+    user_id = g.user["id"]
+    revoked = False
+    try:
+        creds = sync_runner.load_credentials(db, current_app.config["SECRET_BOX"], user_id)
+        if creds and creds.refresh_token:
+            revoked = oauth.revoke(creds.refresh_token)  # revoking it ends all of the app's access
+    except SecretError:
+        pass  # can't read the token; still delete everything we hold
+    delete_user(db, user_id)
+    session.clear()
+    flash(
+        "Your account and data were deleted."
+        + ("" if revoked else " Also remove Canvas2Google at myaccount.google.com/permissions."),
+        "ok",
+    )
+    return redirect(url_for("auth.login"))
 
 
 @bp.post("/sync")

@@ -1,0 +1,19 @@
+# Never upload secrets or local data, even if they somehow reach the deploy source.
+.env
+.env.*
+credentials.json
+token.json
+sync_state.json
+instance/
+*.db
+*.ics
+*.tmp
+
+# Not needed to run the website.
+.venv/
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+__pycache__/
+cli.py

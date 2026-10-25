@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 
+import requests
 from google.auth.transport.requests import Request
 from google.oauth2 import id_token
 from google.oauth2.credentials import Credentials
@@ -65,6 +66,18 @@ def exchange_code(settings: Settings, code: str, state: str, code_verifier: str)
 def verify_identity(settings: Settings, creds: Credentials) -> dict:
     """Check the ID token's signature, issuer, audience and expiry; return its claims."""
     return id_token.verify_oauth2_token(creds.id_token, Request(), settings.google_client_id)
+
+
+REVOKE_URL = "https://oauth2.googleapis.com/revoke"
+
+
+def revoke(token: str) -> bool:
+    """Ask Google to revoke this app's access. Returns whether Google confirmed it."""
+    try:
+        response = requests.post(REVOKE_URL, data={"token": token}, timeout=google_client.HTTP_TIMEOUT)
+        return response.status_code == 200
+    except requests.RequestException:
+        return False
 
 
 def has_sync_scopes(creds: Credentials) -> bool:

@@ -1,105 +1,141 @@
-"""SQLite storage. Every query uses ? placeholders, never string formatting,
-so data from users can't change the SQL (SQL injection)."""
+"""Database storage with SQLAlchemy Core.
+
+The same code runs on SQLite (local development, tests) and Postgres (the cloud,
+where the filesystem doesn't persist). Queries are built from Python objects,
+never by pasting strings together, so data from users can't change the SQL
+(SQL injection).
+"""
 
 from __future__ import annotations
 
 import json
-import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, current_app, g
+from sqlalchemy import (
+    Column,
+    Connection,
+    Engine,
+    Float,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    MetaData,
+    Table,
+    Text,
+    create_engine,
+    delete,
+    event,
+    func,
+    inspect,
+    select,
+    text,
+    update,
+)
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.pool import NullPool
 
 from canvas_sync.config import restrict_permissions
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-    id          INTEGER PRIMARY KEY,
-    google_sub  TEXT NOT NULL UNIQUE,   -- Google's stable account ID
-    email       TEXT NOT NULL,
-    created_at  TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS user_secrets (   -- values are encrypted (see crypto.py)
-    user_id       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    feed_url      BLOB,
-    google_token  BLOB
-);
-CREATE TABLE IF NOT EXISTS sync_state (
-    user_id     INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    state_json  TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS sync_runs (
-    id            INTEGER PRIMARY KEY,
-    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    started_at    TEXT NOT NULL,
-    finished_at   TEXT,
-    dry_run       INTEGER NOT NULL,
-    ok            INTEGER,
-    summary_json  TEXT,
-    error         TEXT
-);
-CREATE TABLE IF NOT EXISTS job_locks (   -- one sync per user at a time, across processes
-    name        TEXT PRIMARY KEY,
-    expires_at  REAL NOT NULL
-);
-"""
+DEFAULT_TIMEZONE = "America/New_York"
+LOCK_TTL_SECONDS = 15 * 60  # a crashed sync's lock expires after this
+SECRET_NAMES = ("feed_url", "google_token")
 
-# Columns added after the first release. Each runs once, if the column is missing,
-# so existing databases are upgraded in place.
+metadata = MetaData()
+
+users = Table(
+    "users", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("google_sub", Text, nullable=False, unique=True),  # Google's stable account ID
+    Column("email", Text, nullable=False),
+    Column("created_at", Text, nullable=False),
+    Column("timezone", Text),
+    Column("auto_sync", Integer, nullable=False, server_default="1"),
+)
+user_secrets = Table(  # values are encrypted (see crypto.py)
+    "user_secrets", metadata,
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("feed_url", LargeBinary),
+    Column("google_token", LargeBinary),
+)
+sync_state = Table(
+    "sync_state", metadata,
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("state_json", Text, nullable=False),
+)
+sync_runs = Table(
+    "sync_runs", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("started_at", Text, nullable=False),
+    Column("finished_at", Text),
+    Column("dry_run", Integer, nullable=False),
+    Column("ok", Integer),
+    Column("summary_json", Text),
+    Column("error", Text),
+    Column("trigger", Text),
+)
+job_locks = Table(  # one sync per user at a time, across processes and servers
+    "job_locks", metadata,
+    Column("name", Text, primary_key=True),
+    Column("expires_at", Float, nullable=False),
+)
+
+# Columns added after the first local release. Old SQLite databases get them in
+# place; new databases already have them from the table definitions above.
 _MIGRATIONS = [
     ("users", "timezone", "ALTER TABLE users ADD COLUMN timezone TEXT"),
     ("users", "auto_sync", "ALTER TABLE users ADD COLUMN auto_sync INTEGER NOT NULL DEFAULT 1"),
     ("sync_runs", "trigger", "ALTER TABLE sync_runs ADD COLUMN trigger TEXT"),
 ]
-_TABLE_INFO = {"users": "PRAGMA table_info(users)", "sync_runs": "PRAGMA table_info(sync_runs)"}
-
-DEFAULT_TIMEZONE = "America/New_York"
-LOCK_TTL_SECONDS = 15 * 60  # a crashed sync's lock expires after this
-
-# Column names can't be "?" placeholders, so each secret gets fixed SQL.
-_SECRET_SQL = {
-    "feed_url": (
-        "SELECT feed_url FROM user_secrets WHERE user_id = ?",
-        "INSERT INTO user_secrets (user_id, feed_url) VALUES (?, ?) "
-        "ON CONFLICT(user_id) DO UPDATE SET feed_url = excluded.feed_url",
-    ),
-    "google_token": (
-        "SELECT google_token FROM user_secrets WHERE user_id = ?",
-        "INSERT INTO user_secrets (user_id, google_token) VALUES (?, ?) "
-        "ON CONFLICT(user_id) DO UPDATE SET google_token = excluded.google_token",
-    ),
-}
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def connect(path: Path) -> sqlite3.Connection:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+def make_engine(url: str) -> Engine:
+    if url.startswith(("postgres://", "postgresql://")):
+        # Hosts hand out plain postgres:// URLs; tell SQLAlchemy to use psycopg 3.
+        url = "postgresql+psycopg://" + url.split("://", 1)[1]
+    if url.startswith("sqlite"):
+        # No pool: each request opens and closes its own connection, as in the
+        # cloud, so no database file handles stay open between requests.
+        engine = create_engine(url, poolclass=NullPool)
+        path = engine.url.database
+        if path:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+
+        @event.listens_for(engine, "connect")
+        def _enable_foreign_keys(dbapi_conn, _record):
+            dbapi_conn.execute("PRAGMA foreign_keys = ON")  # needed for ON DELETE CASCADE
+
+        return engine
+    # Serverless functions get frozen between requests, so pooled connections go
+    # stale. Open a fresh one per request instead, with a connect timeout.
+    return create_engine(url, poolclass=NullPool, connect_args={"connect_timeout": 10})
 
 
 def init_db(app: Flask) -> None:
-    path = app.config["DATABASE_PATH"]
-    with connect(path) as conn:
-        conn.executescript(SCHEMA)
-        for table, column, sql in _MIGRATIONS:
-            columns = {row["name"] for row in conn.execute(_TABLE_INFO[table])}
-            if column not in columns:
-                conn.execute(sql)
-    conn.close()
-    restrict_permissions(path)
+    engine = make_engine(app.config["DATABASE_URL"])
+    app.extensions["db_engine"] = engine
+    with engine.begin() as conn:
+        metadata.create_all(conn)
+        inspector = inspect(conn)
+        for table, column, ddl in _MIGRATIONS:
+            if column not in {c["name"] for c in inspector.get_columns(table)}:
+                conn.execute(text(ddl))
+    if engine.url.get_backend_name() == "sqlite" and engine.url.database:
+        restrict_permissions(Path(engine.url.database))
     app.teardown_appcontext(close_db)
 
 
-def get_db() -> sqlite3.Connection:
+def get_db() -> Connection:
     if "db" not in g:
-        g.db = connect(current_app.config["DATABASE_PATH"])
+        g.db = current_app.extensions["db_engine"].connect()
     return g.db
 
 
@@ -109,127 +145,155 @@ def close_db(_exc: BaseException | None = None) -> None:
         db.close()
 
 
+def _insert(db: Connection, table: Table):
+    """INSERT that supports ON CONFLICT ("upsert") on both databases."""
+    return pg_insert(table) if db.dialect.name == "postgresql" else sqlite_insert(table)
+
+
 # --- Users ------------------------------------------------------------------
 
-def upsert_user(db: sqlite3.Connection, google_sub: str, email: str) -> int:
-    db.execute(
-        "INSERT INTO users (google_sub, email, created_at) VALUES (?, ?, ?) "
-        "ON CONFLICT(google_sub) DO UPDATE SET email = excluded.email",
-        (google_sub, email, _now()),
-    )
+def upsert_user(db: Connection, google_sub: str, email: str) -> int:
+    stmt = _insert(db, users).values(google_sub=google_sub, email=email, created_at=_now())
+    db.execute(stmt.on_conflict_do_update(index_elements=["google_sub"], set_={"email": stmt.excluded.email}))
     db.commit()
-    return db.execute("SELECT id FROM users WHERE google_sub = ?", (google_sub,)).fetchone()["id"]
+    return db.execute(select(users.c.id).where(users.c.google_sub == google_sub)).scalar_one()
 
 
-def get_user(db: sqlite3.Connection, user_id: int) -> sqlite3.Row | None:
-    return db.execute(
-        "SELECT id, email, COALESCE(timezone, ?) AS timezone, auto_sync FROM users WHERE id = ?",
-        (DEFAULT_TIMEZONE, user_id),
-    ).fetchone()
+def get_user(db: Connection, user_id: int) -> dict | None:
+    row = db.execute(
+        select(
+            users.c.id,
+            users.c.email,
+            func.coalesce(users.c.timezone, DEFAULT_TIMEZONE).label("timezone"),
+            users.c.auto_sync,
+        ).where(users.c.id == user_id)
+    ).first()
+    return dict(row._mapping) if row else None
 
 
-def update_preferences(db: sqlite3.Connection, user_id: int, timezone: str, auto_sync: bool) -> None:
-    db.execute(
-        "UPDATE users SET timezone = ?, auto_sync = ? WHERE id = ?", (timezone, int(auto_sync), user_id)
-    )
+def find_user_id(db: Connection, email: str) -> int | None:
+    return db.execute(select(users.c.id).where(users.c.email == email.lower())).scalar_one_or_none()
+
+
+def update_preferences(db: Connection, user_id: int, timezone: str, auto_sync: bool) -> None:
+    db.execute(update(users).where(users.c.id == user_id).values(timezone=timezone, auto_sync=int(auto_sync)))
     db.commit()
 
 
-def users_due_for_auto_sync(db: sqlite3.Connection) -> list[sqlite3.Row]:
+def delete_user(db: Connection, user_id: int) -> None:
+    """Delete a user and, through ON DELETE CASCADE, all their secrets, state and history."""
+    db.execute(delete(users).where(users.c.id == user_id))
+    db.commit()
+
+
+def users_due_for_auto_sync(db: Connection) -> list[dict]:
     """Users with automatic sync on and both a feed URL and a Google token saved."""
-    return db.execute(
-        "SELECT u.id, u.email FROM users u JOIN user_secrets s ON s.user_id = u.id "
-        "WHERE u.auto_sync = 1 AND s.feed_url IS NOT NULL AND s.google_token IS NOT NULL "
-        "ORDER BY u.id"
-    ).fetchall()
+    rows = db.execute(
+        select(users.c.id, users.c.email)
+        .join(user_secrets, user_secrets.c.user_id == users.c.id)
+        .where(
+            users.c.auto_sync == 1,
+            user_secrets.c.feed_url.is_not(None),
+            user_secrets.c.google_token.is_not(None),
+        )
+        .order_by(users.c.id)
+    )
+    return [dict(r._mapping) for r in rows]
 
 
 # --- Cross-process lock ---------------------------------------------------------
 
-def try_lock(db: sqlite3.Connection, name: str, ttl: float = LOCK_TTL_SECONDS) -> bool:
+def try_lock(db: Connection, name: str, ttl: float = LOCK_TTL_SECONDS) -> bool:
     """Take the named lock unless someone else holds an unexpired one.
 
-    BEGIN IMMEDIATE makes SQLite grant the write lock to one connection at a
-    time, so two processes (say, the scheduler and a button click) can't both
-    see the lock as free.
+    One atomic statement: insert the lock, or take over an *expired* one. If an
+    unexpired lock exists, the WHERE clause blocks the update and no row comes
+    back. Both SQLite and Postgres run this as a single step, so two processes
+    can never both get the lock.
     """
     now = time.time()
-    db.commit()  # make sure no earlier transaction is still open
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        row = db.execute("SELECT expires_at FROM job_locks WHERE name = ?", (name,)).fetchone()
-        if row and row["expires_at"] > now:
-            db.rollback()
-            return False
-        db.execute(
-            "INSERT INTO job_locks (name, expires_at) VALUES (?, ?) "
-            "ON CONFLICT(name) DO UPDATE SET expires_at = excluded.expires_at",
-            (name, now + ttl),
-        )
-        db.commit()
-        return True
-    except BaseException:
-        db.rollback()
-        raise
+    stmt = _insert(db, job_locks).values(name=name, expires_at=now + ttl)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["name"],
+        set_={"expires_at": stmt.excluded.expires_at},
+        where=job_locks.c.expires_at < now,
+    ).returning(job_locks.c.name)
+    acquired = db.execute(stmt).first() is not None
+    db.commit()
+    return acquired
 
 
-def release_lock(db: sqlite3.Connection, name: str) -> None:
-    db.execute("DELETE FROM job_locks WHERE name = ?", (name,))
+def release_lock(db: Connection, name: str) -> None:
+    db.execute(delete(job_locks).where(job_locks.c.name == name))
     db.commit()
 
 
 # --- Encrypted secrets --------------------------------------------------------
 
-def get_secret(db: sqlite3.Connection, user_id: int, name: str) -> bytes | None:
-    row = db.execute(_SECRET_SQL[name][0], (user_id,)).fetchone()
-    return row[0] if row else None
+def get_secret(db: Connection, user_id: int, name: str) -> bytes | None:
+    column = user_secrets.c[_check_secret_name(name)]
+    value = db.execute(select(column).where(user_secrets.c.user_id == user_id)).scalar_one_or_none()
+    return bytes(value) if value is not None else None
 
 
-def set_secret(db: sqlite3.Connection, user_id: int, name: str, blob: bytes) -> None:
-    db.execute(_SECRET_SQL[name][1], (user_id, blob))
+def set_secret(db: Connection, user_id: int, name: str, blob: bytes) -> None:
+    name = _check_secret_name(name)
+    stmt = _insert(db, user_secrets).values(user_id=user_id, **{name: blob})
+    db.execute(stmt.on_conflict_do_update(index_elements=["user_id"], set_={name: getattr(stmt.excluded, name)}))
     db.commit()
+
+
+def _check_secret_name(name: str) -> str:
+    if name not in SECRET_NAMES:
+        raise ValueError(f"Unknown secret: {name}")
+    return name
 
 
 # --- Sync state and history ---------------------------------------------------
 
-def load_state(db: sqlite3.Connection, user_id: int) -> dict | None:
-    row = db.execute("SELECT state_json FROM sync_state WHERE user_id = ?", (user_id,)).fetchone()
-    return json.loads(row["state_json"]) if row else None
+def load_state(db: Connection, user_id: int) -> dict | None:
+    value = db.execute(select(sync_state.c.state_json).where(sync_state.c.user_id == user_id)).scalar_one_or_none()
+    return json.loads(value) if value else None
 
 
-def save_state(db: sqlite3.Connection, user_id: int, data: dict) -> None:
+def save_state(db: Connection, user_id: int, data: dict) -> None:
+    stmt = _insert(db, sync_state).values(user_id=user_id, state_json=json.dumps(data))
+    db.execute(stmt.on_conflict_do_update(index_elements=["user_id"], set_={"state_json": stmt.excluded.state_json}))
+    db.commit()
+
+
+def start_run(db: Connection, user_id: int, dry_run: bool, trigger: str = "manual") -> int:
+    result = db.execute(
+        sync_runs.insert().values(user_id=user_id, started_at=_now(), dry_run=int(dry_run), trigger=trigger)
+    )
+    db.commit()
+    return result.inserted_primary_key[0]
+
+
+def finish_run(db: Connection, run_id: int, ok: bool, summary: dict | None, error: str | None) -> None:
     db.execute(
-        "INSERT INTO sync_state (user_id, state_json) VALUES (?, ?) "
-        "ON CONFLICT(user_id) DO UPDATE SET state_json = excluded.state_json",
-        (user_id, json.dumps(data)),
+        update(sync_runs)
+        .where(sync_runs.c.id == run_id)
+        .values(finished_at=_now(), ok=int(ok), summary_json=json.dumps(summary) if summary else None, error=error)
     )
     db.commit()
 
 
-def start_run(db: sqlite3.Connection, user_id: int, dry_run: bool, trigger: str = "manual") -> int:
-    cur = db.execute(
-        "INSERT INTO sync_runs (user_id, started_at, dry_run, trigger) VALUES (?, ?, ?, ?)",
-        (user_id, _now(), int(dry_run), trigger),
-    )
-    db.commit()
-    return cur.lastrowid
-
-
-def finish_run(db: sqlite3.Connection, run_id: int, ok: bool, summary: dict | None, error: str | None) -> None:
-    db.execute(
-        "UPDATE sync_runs SET finished_at = ?, ok = ?, summary_json = ?, error = ? WHERE id = ?",
-        (_now(), int(ok), json.dumps(summary) if summary else None, error, run_id),
-    )
-    db.commit()
-
-
-def recent_runs(db: sqlite3.Connection, user_id: int, limit: int = 5) -> list[dict]:
+def recent_runs(db: Connection, user_id: int, limit: int = 5) -> list[dict]:
     rows = db.execute(
-        "SELECT started_at, dry_run, ok, summary_json, error, COALESCE(trigger, 'manual') AS trigger FROM sync_runs "
-        "WHERE user_id = ? ORDER BY id DESC LIMIT ?",
-        (user_id, limit),
-    ).fetchall()
+        select(
+            sync_runs.c.started_at,
+            sync_runs.c.dry_run,
+            sync_runs.c.ok,
+            sync_runs.c.summary_json,
+            sync_runs.c.error,
+            func.coalesce(sync_runs.c.trigger, "manual").label("trigger"),
+        )
+        .where(sync_runs.c.user_id == user_id)
+        .order_by(sync_runs.c.id.desc())
+        .limit(limit)
+    )
     return [
-        {**dict(r), "summary": json.loads(r["summary_json"]) if r["summary_json"] else None}
+        {**dict(r._mapping), "summary": json.loads(r.summary_json) if r.summary_json else None}
         for r in rows
     ]
