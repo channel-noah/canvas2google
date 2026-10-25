@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Problem · Canvas2Google{% endblock %}
+{% block content %}
+<section class="card narrow center">
+  <h1>Something's not right</h1>
+  <p>{{ message }}</p>
+  <p><a class="button" href="{{ url_for('views.dashboard') }}">Go to the dashboard</a></p>
+</section>
+{% endblock %}

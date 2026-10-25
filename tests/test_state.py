@@ -45,6 +45,18 @@ def test_unusable_file_stops_instead_of_starting_over(tmp_path, content):
         SyncState.load(path)
 
 
+def test_custom_saver_receives_data_instead_of_a_file(tmp_path):
+    saved = []
+    s = SyncState(path=None, saver=saved.append)
+    s.calendar_id = "cal1"
+    s.save()
+    assert saved[-1]["calendar_id"] == "cal1"
+    assert list(tmp_path.iterdir()) == []
+
+    again = SyncState.from_dict(saved[-1], saver=saved.append)
+    assert again.calendar_id == "cal1"
+
+
 def test_fingerprint_is_stable_and_order_independent():
     a = {"title": "HW", "due": "2099-01-01", "notes": "n"}
     b = {"notes": "n", "due": "2099-01-01", "title": "HW"}

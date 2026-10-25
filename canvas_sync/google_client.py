@@ -10,7 +10,7 @@ import httplib2
 from google.auth.exceptions import GoogleAuthError, RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google_auth_oauthlib.flow import Flow, InstalledAppFlow
 from googleapiclient.discovery import build
 
 from .config import PROJECT_ROOT, restrict_permissions, write_private_file
@@ -33,6 +33,18 @@ SIGN_IN_TIMEOUT = 300  # seconds to finish signing in in the browser
 
 class AuthError(Exception):
     """Sign-in failed. Messages never include tokens or client secrets."""
+
+
+def with_token_timeout(flow: Flow) -> Flow:
+    """Give an OAuth flow's code-for-token exchange a timeout.
+
+    The library's token request has no timeout, and its helpers can't pass one
+    through, so wrap that one call.
+    """
+    flow.oauth2session.fetch_token = functools.partial(
+        flow.oauth2session.fetch_token, timeout=HTTP_TIMEOUT
+    )
+    return flow
 
 
 def _save_token(creds: Credentials) -> None:
@@ -78,12 +90,7 @@ def get_credentials(allow_browser: bool = True) -> Credentials:
 
     restrict_permissions(CREDENTIALS_FILE)
     try:
-        flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
-        # The library's code-for-token exchange has no timeout and run_local_server
-        # can't pass one through, so give that one request a default timeout.
-        flow.oauth2session.fetch_token = functools.partial(
-            flow.oauth2session.fetch_token, timeout=HTTP_TIMEOUT
-        )
+        flow = with_token_timeout(InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES))
         creds = flow.run_local_server(
             host="localhost",
             port=0,  # any free port

@@ -40,19 +40,42 @@ def write_private_file(path: Path, text: str) -> None:
     restrict_permissions(path)
 
 
-def load_feed_url() -> str:
-    restrict_permissions(ENV_FILE)
-    load_dotenv(ENV_FILE)
-    raw = os.environ.get("CANVAS_FEED_URL", "").strip()
+ALLOWED_FEED_HOST_SUFFIX = ".instructure.com"  # Canvas cloud hosting
+FEED_PATH_PREFIX = "/feeds/calendars/"
+
+
+def validate_feed_url(raw: str) -> str:
+    """Check that a URL is a Canvas calendar feed and return its normalized form.
+
+    The checks are strict on purpose. A website that fetches URLs its users paste
+    in can be abused to make the server request internal addresses (SSRF), so we
+    only accept HTTPS links to Canvas feed paths. Error messages never repeat the URL.
+    """
+    raw = raw.strip()
     if not raw or PLACEHOLDER_MARKER in raw:
-        raise ConfigError(
-            "CANVAS_FEED_URL is not set. Paste your Canvas calendar feed URL into .env."
-        )
+        raise ConfigError("The Canvas feed URL is not set.")
 
     parts = urlsplit(raw)
     # Canvas sometimes shows feeds as webcal:// links; that's the same URL over HTTPS.
     if parts.scheme == "webcal":
         parts = parts._replace(scheme="https")
-    if parts.scheme != "https" or not parts.netloc:
-        raise ConfigError("CANVAS_FEED_URL must be an https:// (or webcal://) link.")
-    return urlunsplit(parts)
+    if parts.scheme != "https" or not parts.hostname:
+        raise ConfigError("The feed URL must be an https:// (or webcal://) link.")
+    if parts.username or parts.password or parts.port not in (None, 443):
+        raise ConfigError("The feed URL can't include a username, password or custom port.")
+    if not parts.hostname.endswith(ALLOWED_FEED_HOST_SUFFIX):
+        raise ConfigError("The feed URL must be on an instructure.com Canvas site.")
+    if not parts.path.startswith(FEED_PATH_PREFIX) or not parts.path.endswith(".ics"):
+        raise ConfigError("That doesn't look like a Canvas calendar feed link (…/feeds/calendars/….ics).")
+    return urlunsplit(parts._replace(fragment=""))
+
+
+def load_feed_url() -> str:
+    restrict_permissions(ENV_FILE)
+    load_dotenv(ENV_FILE)
+    raw = os.environ.get("CANVAS_FEED_URL", "")
+    if not raw.strip() or PLACEHOLDER_MARKER in raw:
+        raise ConfigError(
+            "CANVAS_FEED_URL is not set. Paste your Canvas calendar feed URL into .env."
+        )
+    return validate_feed_url(raw)

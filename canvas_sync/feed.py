@@ -59,12 +59,16 @@ def to_local(value: date | datetime) -> datetime:
 
 def fetch_feed(url: str) -> bytes:
     try:
-        with requests.get(url, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT), stream=True) as resp:
-            if not resp.url.startswith("https://"):
-                raise FeedError("The feed redirected to a non-HTTPS address; refusing to read it.")
+        # Redirects aren't followed: Canvas feeds don't redirect, and following them
+        # would let a URL that passed validation lead the server somewhere else (SSRF).
+        with requests.get(
+            url, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT), stream=True, allow_redirects=False
+        ) as resp:
+            if 300 <= resp.status_code < 400:
+                raise FeedError("The feed URL redirected somewhere else; refusing to follow it.")
             if resp.status_code != 200:
                 raise FeedError(
-                    f"Canvas returned HTTP {resp.status_code}. Check that the feed URL in .env is current."
+                    f"Canvas returned HTTP {resp.status_code}. Check that the feed URL is current."
                 )
             chunks = []
             total = 0

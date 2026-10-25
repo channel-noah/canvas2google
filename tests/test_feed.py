@@ -96,16 +96,17 @@ class FakeResponse:
         return iter(self._chunks)
 
 
-def test_fetch_uses_timeouts(monkeypatch):
+def test_fetch_uses_timeouts_and_never_follows_redirects(monkeypatch):
     seen = {}
 
-    def fake_get(url, timeout, stream):
-        seen["timeout"] = timeout
+    def fake_get(url, **kwargs):
+        seen.update(kwargs)
         return FakeResponse(url)
 
     monkeypatch.setattr(requests, "get", fake_get)
     assert feed.fetch_feed(SECRET_URL) == b"data"
     assert seen["timeout"] == (feed.CONNECT_TIMEOUT, feed.READ_TIMEOUT)
+    assert seen["allow_redirects"] is False
 
 
 def test_network_error_message_does_not_leak_url(monkeypatch):
@@ -120,9 +121,10 @@ def test_network_error_message_does_not_leak_url(monkeypatch):
     assert err.value.__suppress_context__ and err.value.__cause__ is None
 
 
-def test_redirect_to_plain_http_is_refused(monkeypatch):
-    monkeypatch.setattr(requests, "get", lambda url, **kw: FakeResponse("http://evil.example/feed.ics"))
-    with pytest.raises(FeedError, match="non-HTTPS"):
+@pytest.mark.parametrize("status", [301, 302, 307, 308])
+def test_redirects_are_refused(monkeypatch, status):
+    monkeypatch.setattr(requests, "get", lambda url, **kw: FakeResponse(url, status=status))
+    with pytest.raises(FeedError, match="redirected"):
         feed.fetch_feed(SECRET_URL)
 
 

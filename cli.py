@@ -13,6 +13,7 @@ from httplib2 import HttpLib2Error
 
 from canvas_sync.calendar_sync import EventSyncResult, sync_events
 from canvas_sync.config import ConfigError, load_feed_url
+from canvas_sync.display import when_text
 from canvas_sync.feed import CanvasItem, FeedError, fetch_feed, parse_feed, upcoming
 from canvas_sync.google_client import AuthError, build_services, get_credentials, list_all
 from canvas_sync.state import StateError, SyncState
@@ -21,17 +22,6 @@ from canvas_sync.tasks_sync import TaskSyncResult, sync_tasks
 
 def _truncate(text: str, width: int) -> str:
     return text if len(text) <= width else text[: width - 1] + "…"
-
-
-def _when(item: CanvasItem) -> str:
-    if item.all_day:
-        return item.local_start.strftime("%a %b %d") + " (all day)"
-    start = item.local_start
-    text = start.strftime("%a %b %d %I:%M %p")
-    end = item.local_end
-    if item.kind == "event" and end and end != start:
-        text += end.strftime(" - %I:%M %p")
-    return text
 
 
 def print_table(items: list[CanvasItem]) -> None:
@@ -43,7 +33,7 @@ def print_table(items: list[CanvasItem]) -> None:
     print("-" * len(header) + "-" * 40)
     for item in items:
         print(
-            f"{item.kind:<10}  {_when(item):<30}  "
+            f"{item.kind:<10}  {when_text(item):<30}  "
             f"{_truncate(item.course or '-', 24):<24}  {_truncate(item.title, 60)}"
         )
     counts = Counter(i.kind for i in items)

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="row spread">
+    <div>
+      <h1>Dashboard</h1>
+      <p class="muted">Signed in as {{ g.user["email"] }}
+        {% if feed_host %} · Feed: {{ feed_host }}{% endif %}</p>
+    </div>
+    {% if has_feed %}
+    <form method="post" action="{{ url_for('views.sync') }}" class="row">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="button" type="submit" name="mode" value="preview">Preview changes</button>
+      <button class="button primary" type="submit" name="mode" value="sync">Sync now</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if not has_feed %}
+    <p class="flash info">Start by adding your Canvas feed URL in <a href="{{ url_for('views.settings_page') }}">Settings</a>.</p>
+  {% endif %}
+  {% if problem %}<p class="flash error">{{ problem }}</p>{% endif %}
+</section>
+
+<section class="card">
+  <h2>Recent syncs</h2>
+  {% if runs %}
+  <table>
+    <thead><tr><th>When (UTC)</th><th>Type</th><th>Result</th></tr></thead>
+    <tbody>
+    {% for run in runs %}
+      <tr>
+        <td>{{ run.started_at.replace("T", " ")[:16] }}</td>
+        <td>{{ "Preview" if run.dry_run else "Sync" }}</td>
+        <td>
+          {% if run.ok %}
+            {% set e = run.summary.events %}{% set t = run.summary.tasks %}
+            <span class="ok">✓</span>
+            events {{ e.created|length }} new / {{ e.updated|length }} changed ·
+            tasks {{ t.created|length }} new / {{ t.updated|length }} changed
+          {% else %}
+            <span class="bad">✗</span> {{ run.error or "Failed" }}
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="muted">No syncs yet.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Upcoming in Canvas</h2>
+  {% if items %}
+  <table>
+    <thead><tr><th>Type</th><th>Due / when</th><th>Course</th><th>Title</th></tr></thead>
+    <tbody>
+    {% for item in items %}
+      <tr>
+        <td><span class="tag {{ item.kind }}">{{ item.kind }}</span></td>
+        <td class="nowrap">{{ item|when }}</td>
+        <td>{{ item.course or "—" }}</td>
+        <td>{{ item.title }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% elif has_feed and not problem %}
+    <p class="muted">Nothing upcoming.</p>
+  {% endif %}
+</section>
+{% endblock %}

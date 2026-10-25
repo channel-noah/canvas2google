@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ "Preview" if outcome.dry_run else "Sync" }} · Canvas2Google{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>{{ "Preview: nothing was changed" if outcome.dry_run else "Sync complete" if outcome.ok else "Sync failed" }}</h1>
+  {% if outcome.error %}
+    <p class="flash error">{{ outcome.error }}
+      {% if outcome.needs_sign_in %} <a href="{{ url_for('auth.start', consent='1') }}">Sign in again</a>{% endif %}
+    </p>
+  {% endif %}
+
+  {% set would = "would be " if outcome.dry_run else "" %}
+  {% for label, result, container in [("Events → Google Calendar", outcome.events, "calendar"),
+                                       ("Assignments → Google Tasks", outcome.tasks, "task list")] %}
+    {% if result %}
+    <h2>{{ label }}</h2>
+    {% if result.calendar_created or result.tasklist_created %}
+      <p>The “Canvas” {{ container }} {{ would or "was " }}created.</p>
+    {% endif %}
+    <ul class="changes">
+      {% for t in result.created %}<li class="add">+ {{ would }}created: {{ t }}</li>{% endfor %}
+      {% for t in result.updated %}<li class="chg">~ {{ would }}updated: {{ t }}</li>{% endfor %}
+      {% for t in result.relinked %}<li class="lnk">= {{ would }}re-linked: {{ t }}</li>{% endfor %}
+    </ul>
+    <p class="muted">
+      {{ result.created|length }} new · {{ result.updated|length }} changed ·
+      {{ result.relinked|length }} re-linked · {{ result.unchanged }} unchanged
+      {% if result.skipped_past_due is defined %} · {{ result.skipped_past_due }} past due (skipped){% endif %}
+    </p>
+    {% if result.missing_from_feed %}
+      <p class="fine">{{ result.missing_from_feed|length }} synced item(s) are no longer in the Canvas feed and were left unchanged.</p>
+    {% endif %}
+    {% endif %}
+  {% endfor %}
+
+  <p><a class="button" href="{{ url_for('views.dashboard') }}">Back to dashboard</a></p>
+</section>
+{% endblock %}

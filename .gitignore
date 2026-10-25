@@ -5,6 +5,8 @@ token.json
 sync_state.json
 *.ics
 *.tmp
+instance/
+*.db
 
 # --- Python ---
 .venv/

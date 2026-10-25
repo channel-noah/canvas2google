@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Settings · Canvas2Google{% endblock %}
+{% block content %}
+<section class="card narrow">
+  <h1>Settings</h1>
+  {% if problem %}<p class="flash error">{{ problem }}</p>{% endif %}
+  <h2>Canvas calendar feed</h2>
+  <p class="muted">
+    {% if feed_host %}A feed from <strong>{{ feed_host }}</strong> is saved. Paste a new one to replace it.
+    {% else %}No feed saved yet.{% endif %}
+  </p>
+  <p class="fine">In Canvas, open <em>Calendar → Calendar Feed</em> and copy the link. It works like a
+    password, so it's stored encrypted and never shown again.</p>
+  <form method="post" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="feed_url">Feed URL</label>
+    <input id="feed_url" name="feed_url" type="password" autocomplete="off" spellcheck="false"
+           placeholder="https://yourschool.instructure.com/feeds/calendars/user_….ics" required>
+    <button class="button primary" type="submit">Save feed URL</button>
+  </form>
+</section>
+{% endblock %}
