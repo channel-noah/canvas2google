@@ -85,7 +85,7 @@ tests/            Test suite (network blocked; fake Google services)
 | **Secret hygiene** | Nothing secret was ever committed (full-history scans before every push, using a scanner that is **self-tested against a known fake**). Errors never echo URLs or tokens. OAuth codes are redacted from request logs. |
 | **Supply chain** | Every dependency pinned; Dependabot proposes updates weekly. CI pins GitHub Actions to exact commits and runs with read-only permissions. `pip-audit` clean. `bandit` clean, with three documented suppressions: one false positive, plus two deliberately fake values in the demo script. |
 
-The full analysis (assets, trust boundaries, 24 threats, 14 accepted risks, and incidents caught during development) is in **[THREAT_MODEL.md](THREAT_MODEL.md)**.
+The full analysis (assets, trust boundaries, 30 threats, 14 remaining risks, and incidents caught during development) is in **[THREAT_MODEL.md](THREAT_MODEL.md)**.
 
 ## Testing
 

@@ -10,7 +10,7 @@ It runs in two forms that share one core (`canvas_sync/`):
 - **Website:** `webapp/`, Flask on Vercel at `https://canvas2google.vercel.app`, with Postgres on Neon and a daily Vercel cron. It's live for one allowlisted user. The Google OAuth app is "In production" but **unverified** (100-user cap).
 - **Command-line tool:** `cli.py`, run locally with secrets in local files.
 
-*Last reviewed: 2026-10-25 (Milestone 10: cloud deployment).*
+*Last reviewed: 2026-10-25 (Milestone 12: public-launch hardening).*
 
 ---
 
@@ -58,7 +58,7 @@ There are five trust boundaries:
 
 | ID | Threat | Mitigations | Status |
 |---|---|---|---|
-| W1 | **Unauthorized sign-in.** A stranger uses the site. | Google sign-in only. An **email allowlist** is checked *before anything is stored*, and the Google account must have a verified email. The ID token's signature, audience, issuer and expiry are verified. Tested, including a planted bug that removed the allowlist (caught). | Mitigated |
+| W1 | **Unauthorized sign-in.** A stranger uses the site. | Google sign-in only. `SIGNUP_MODE=invite` (live setting) checks an **email allowlist** *before anything is stored*; `open` admits any verified Google account. The ID token's signature, audience, issuer and expiry are verified. Refused accounts have their fresh Google grant **revoked**. Tested, including planted bugs that removed the allowlist (caught). | Mitigated |
 | W2 | **Login CSRF / sign-in hijack.** An attacker swaps in their own OAuth code. | A random `state` value is stored in the session and checked with a constant-time comparison; it can only be used once. **PKCE** binds the code to this browser's verifier. The code is exchanged server-side with the client secret. | Mitigated |
 | W3 | **CSRF.** Another site makes the user's browser submit forms. | A Flask-WTF token on every POST. `SameSite=Lax` cookies. Over HTTPS, a strict same-site `Referer` check (this is why the Referrer-Policy is `same-origin`; see §5). | Mitigated |
 | W4 | **XSS.** Feed titles or descriptions inject script into pages. | Jinja auto-escaping is on and `|safe` is never used. **CSP `default-src 'none'`**: no scripts at all, only our stylesheet. Feed HTML is converted to plain text before use. Tested with `<script>` titles. | Mitigated |
@@ -72,6 +72,12 @@ There are five trust boundaries:
 | W12 | **Duplicate or corrupted sync** (cron, button and overlapping runs) | A per-user lock taken with **one atomic conditional upsert**, which works across processes and expires in case of crashes. Sync records are saved after every change. UID tags allow re-linking. CLI sync records were imported before the first cloud sync. | Mitigated |
 | W13 | **Misconfigured deploy loses data** | The app refuses to start on Vercel without a Postgres `DATABASE_URL`. Neon is connected to Production only, with no per-deploy database branches. | Mitigated |
 | W14 | **Secrets shipped in the deployment** | Secrets were never committed (history scans are clean). `.vercelignore` additionally blocks `.env*`, credentials, tokens, state and databases. Verified live: `/.env`, `/.env.production`, `/credentials.json`, `/token.json` and source files all return 404. | Mitigated |
+| W15 | **Abuse and resource exhaustion** (sign-in floods, sync spam, refresh-spam hitting Canvas, cron-secret guessing) | Database-backed fixed-window **rate limits** (one atomic upsert, works across serverless instances): sign-in 10/10 min per IP, Sync/Preview 6/10 min per user, dashboard Canvas fetches 30/10 min per user, and a lockout after 5 wrong cron secrets per IP (further attempts aren't even checked). `429` with `Retry-After`. Counters pruned daily. | Mitigated |
+| W16 | **Unbounded growth / burning Google's 100-user cap** | `MAX_USERS` (default 90): new accounts are refused, and their grant revoked, once reached; returning users can always sign in. | Mitigated, see R1 |
+| W17 | **Cross-user data access** (multi-tenancy bugs, IDOR) | Every route acts on the session's user; a test asserts **no route takes a user ID**. 12 isolation tests with two users and separate fake Google accounts cover reading, syncing (manual and scheduled), locks, settings, deletion, forged session cookies, and ciphertexts copied between rows. Planted cross-user bugs are caught. | Mitigated |
+| W18 | **Over-retention of personal data** | Sync history kept to the **20 most recent runs** per user. IP addresses never stored, only an HMAC with the app's secret key, pruned after about a day. Public privacy policy and terms. | Mitigated |
+| W19 | **Encryption key compromise or loss** | **Key rotation:** `APP_ENCRYPTION_KEY=NEW,OLD` (MultiFernet). New data uses the newest key; the daily sync and `flask rotate-keys` re-encrypt the rest while keeping each value's row binding; then the old key is removed. Unreadable values are counted, never modified. | Mitigated, see R8 |
+| W20 | **Supply-chain / CI compromise** | CI runs tests, bandit and pip-audit on every push (Python 3.12, as in production) with **read-only** token permissions, actions **pinned to commit SHAs**, and no persisted checkout credentials. **Dependabot** alerts, security updates, and weekly version updates are on. | Mitigated, see R7 |
 
 ### Core and command-line tool (carried over from Milestone 6)
 
@@ -92,16 +98,16 @@ There are five trust boundaries:
 
 | ID | Risk | Why it's accepted / future work |
 |---|---|---|
-| R1 | **The Google app is unverified.** Users see a warning screen; there's a 100-user lifetime cap. | Fine for a single user. Google's verification review (privacy policy, scope justification, possibly a demo video) is part of the public launch (Milestone 12). |
+| R1 | **The Google app is unverified.** Users see a warning screen; there's a 100-user lifetime cap. | The verification pack is ready (`docs/google-verification.md`): scope justification, data-handling answers, and a demo video script. **Pending:** the developer records the video and submits. Until approved, `MAX_USERS` keeps sign-ups under the cap. |
 | R2 | **CLI secrets are plaintext on the local disk.** | Personal tool; file permissions are the control. Future: OS keyring. |
 | R3 | **The `tasks` scope covers all task lists**, not just "Canvas". | No narrower Google scope exists. The code only touches "Canvas"; a stolen token wouldn't be limited that way. |
 | R4 | **Losing the sync records creates a second "Canvas" calendar.** | `calendar.app.created` can't list calendars, so the ID exists only in the sync records. Events and tasks are recoverable through tags. Neon offers point-in-time restore within its plan's (short, on the free tier) history window. |
 | R5 | **A leaked feed URL can't be revoked by the app.** | Kept out of git, logs and URLs. Ask the school's Canvas admin to reset the feed if it leaks. |
 | R6 | **Feed text is forwarded to Google descriptions**, which render limited HTML. | Google sanitizes it, and only the user sees it. |
-| R7 | **Pinned versions don't pick up fixes automatically.** | Re-run `pip-audit` before each release; future: Dependabot on GitHub. |
-| R8 | **One encryption key, no rotation process.** If A3 leaks, every stored secret is exposed. | Small user base. Future: key versioning (Fernet `MultiFernet`) and a re-encryption job. Losing the key isn't catastrophic: users re-enter their feed and reconnect, and sync records aren't encrypted, so nothing is duplicated. |
+| R7 | **Pinned versions don't pick up fixes automatically.** | **Reduced:** Dependabot opens update PRs weekly and security PRs as advisories appear, and CI runs `pip-audit` on every push. Each update still needs a human to merge it. |
+| R8 | **If the encryption key leaks, stored secrets are exposed until rotated.** | **Reduced:** rotation now exists (W19). Rotate on any suspicion of exposure; Google tokens can also be revoked by users. Losing the key isn't catastrophic: users re-enter their feed and reconnect, and sync records aren't encrypted, so nothing is duplicated. |
 | R9 | **Platform trust.** Vercel, Neon and GitHub staff or breaches. | Accepted for a free personal project. Encryption at rest limits what a database-only breach reveals. |
-| R10 | **No application-level rate limiting.** | Sign-in is delegated to Google, the cron secret is unguessable, and Vercel provides platform DDoS protection. Revisit (per-IP limits) before the public launch. |
+| R10 | **Rate limits are per IP and per user, with fixed windows.** A distributed attacker with many IPs can still send more sign-in attempts. | Accepted: sign-in itself is handled by Google, every request still needs a valid Google sign-in to do anything, and Vercel provides platform-level DDoS protection. |
 | R11 | **Platform request logs may record the `/auth/callback?code=…` URL.** | The local filter doesn't control Vercel's own logs. The code is single-use, expires in minutes, and is useless without the client secret and the PKCE verifier. |
 | R12 | **Admin account takeover** (GitHub, Vercel, Neon, Google). | **2-factor authentication is on for GitHub, Vercel and Neon** (2026-10-25). **Google is still pending:** Google's risk checks blocked enabling 2-Step Verification on an account and device it doesn't yet trust; retry from a long-used device. Until then, Google relies on a long, unique password stored in a password manager, plus watching the account's security activity. Vercel's GitHub app is limited to this one repo. |
 | R13 | **Daily sync only, best effort.** Vercel Hobby cron runs once a day within a one-hour window, and runs can occasionally be skipped or repeated. | The sync is idempotent and locked, so repeats are harmless. "Sync now" covers urgent changes. |
@@ -115,6 +121,8 @@ There are five trust boundaries:
 - **OAuth code in local request logs (Milestone 8).** Fixed with a query-string redaction filter and a test.
 - **Referrer-Policy would have broken every form in production (Milestone 10).** `no-referrer` conflicts with Flask-WTF's HTTPS same-site `Referer` check. Caught by reasoning *before* deployment; switched to `same-origin` (still never sent to other sites), and a test proves no-Referer and cross-site posts are refused while same-site posts succeed.
 - **A stale environment variable after a redeploy (Milestone 10).** The live site kept the placeholder `OAUTH_REDIRECT_URI` after a dashboard "Redeploy". It was **caught by inspecting the live sign-in redirect before anyone signed in**, and fixed with a fresh production deploy. Lesson: verify configuration from the outside, not just in the dashboard.
+- **A flaky test (Milestone 11).** A scheduler test failed about 1 run in 10: it read a sync's result after the run had *started* but before it *finished*. It was a test bug, not an app bug (the same race showed up once in a manual live check). Fixed by waiting for completion; then 0 failures in 40 runs.
+- **Mutation checks that silently tested nothing (Milestone 12).** Two attempts to plant bugs for checking the isolation tests broke the module's syntax, so pytest failed to *collect*, and the report showed "0 failures". Caught by checking the number of tests that ran. Lesson: a passing result only counts if the expected tests actually ran.
 - **Unescaped iCal text (Milestone 4)** and **time-zone handling (Milestones 5 and 9)** were caught by previews and tests before reaching Google.
 
 ## 6. How to re-verify
@@ -133,10 +141,17 @@ Live checks:
 - The response headers include the CSP, HSTS, `X-Frame-Options: DENY` and `Referrer-Policy: same-origin`.
 - The `/auth/google` redirect has `redirect_uri=https://canvas2google.vercel.app/auth/callback`, `code_challenge_method=S256` and a `state`.
 
-## 7. Before opening to the public (Milestone 12)
+## 7. Public-launch checklist (Milestone 12)
 
-- Google OAuth **verification** for the `tasks` scope, and a terms-of-service page.
-- Remove the allowlist and add abuse controls: per-IP rate limits, and caps on users and feed size.
-- Tests that one user's data can never be read or changed by another user (tenant isolation).
-- Encryption key rotation (R8), Dependabot (R7), and 2-factor authentication on all admin accounts (R12).
-- Monitoring and alerts for failed syncs and unusual traffic.
+| Item | Status |
+|---|---|
+| Multi-user isolation tests | Done (W17) |
+| Revoke grants of refused sign-ins; history and IP minimization | Done (W1, W18) |
+| Rate limits, user cap, invite-only/open sign-up mode | Done (W15, W16) |
+| Encryption key rotation | Done (W19) |
+| CI with pinned actions; Dependabot | Done (W20) |
+| Landing page, privacy policy for multiple users, terms of service | Done |
+| 2-factor authentication on admin accounts | GitHub, Vercel and Neon done; **Google pending** (R12) |
+| Google OAuth verification | **Pack ready; submission pending** (R1) |
+| Switch `SIGNUP_MODE` to `open` | **Developer's decision**, after verification is approved |
+| Monitoring and alerts for failed syncs | Future work: failures are visible on each user's dashboard and as non-200 cron responses in Vercel logs, but nothing alerts the developer yet |
