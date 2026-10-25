@@ -89,6 +89,14 @@ def test_privacy_page_is_public_and_covers_limited_use(client):
     assert "Limited Use" in text and "Delete my account" in text
 
 
+def test_google_verification_file_is_served_publicly(client):
+    from webapp.public import GOOGLE_VERIFICATION_FILE
+
+    response = client.get(f"/{GOOGLE_VERIFICATION_FILE}")
+    assert response.status_code == 200
+    assert response.get_data(as_text=True) == f"google-site-verification: {GOOGLE_VERIFICATION_FILE}"
+
+
 def test_site_verification_tag_only_when_configured(app):
     assert "google-site-verification" not in app.test_client().get("/login").get_data(as_text=True)
     tagged = create_app(dataclasses.replace(app.config["SETTINGS"], site_verification="abc123"))
