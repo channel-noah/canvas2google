@@ -43,6 +43,7 @@ from canvas_sync.config import restrict_permissions
 DEFAULT_TIMEZONE = "America/New_York"
 LOCK_TTL_SECONDS = 15 * 60  # a crashed sync's lock expires after this
 SECRET_NAMES = ("feed_url", "google_token")
+KEEP_RUNS = 20  # sync history kept per user
 
 metadata = MetaData()
 
@@ -276,7 +277,25 @@ def finish_run(db: Connection, run_id: int, ok: bool, summary: dict | None, erro
         .where(sync_runs.c.id == run_id)
         .values(finished_at=_now(), ok=int(ok), summary_json=json.dumps(summary) if summary else None, error=error)
     )
+    user_id = db.execute(select(sync_runs.c.user_id).where(sync_runs.c.id == run_id)).scalar_one()
+    prune_runs(db, user_id)
     db.commit()
+
+
+def prune_runs(db: Connection, user_id: int, keep: int = KEEP_RUNS) -> None:
+    """Delete all but the user's `keep` most recent runs.
+
+    Run summaries include assignment titles, so old history is personal data we
+    don't need. Keeping only recent runs is data minimization.
+    """
+    newest = (
+        select(sync_runs.c.id)
+        .where(sync_runs.c.user_id == user_id)
+        .order_by(sync_runs.c.id.desc())
+        .limit(keep)
+        .scalar_subquery()
+    )
+    db.execute(delete(sync_runs).where(sync_runs.c.user_id == user_id, sync_runs.c.id.not_in(newest)))
 
 
 def recent_runs(db: Connection, user_id: int, limit: int = 5) -> list[dict]:

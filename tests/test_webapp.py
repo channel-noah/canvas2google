@@ -70,6 +70,9 @@ def fake_google(monkeypatch, email, verified=True, scopes=None, refresh_token="r
     monkeypatch.setattr(oauth, "exchange_code", lambda *a: creds)
     monkeypatch.setattr(oauth, "verify_identity",
                         lambda settings, c: {"email": email, "email_verified": verified, "sub": "sub-" + email})
+    revoked = []
+    monkeypatch.setattr(oauth, "revoke", lambda token: revoked.append(token) or True)
+    return revoked
 
 
 def test_session_cookie_is_httponly_and_samesite(client, monkeypatch):
@@ -97,6 +100,29 @@ def test_account_not_on_allowlist_is_refused_and_nothing_stored(client, monkeypa
     assert response.status_code == 403
     assert db_rows(app, "SELECT * FROM users") == []
     assert client.get("/").status_code == 302  # still signed out
+
+
+def test_refused_accounts_get_their_google_grant_revoked(client, monkeypatch):
+    start_sign_in(client, monkeypatch)
+    revoked = fake_google(monkeypatch, "intruder@evil.com")
+    assert client.get("/auth/callback?state=state-123&code=abc").status_code == 403
+    assert revoked == ["refresh-SECRET"]
+
+
+def test_allowed_user_missing_a_scope_is_not_revoked(client, monkeypatch):
+    # Revoking would cancel the whole grant, including a token we already store.
+    start_sign_in(client, monkeypatch)
+    revoked = fake_google(monkeypatch, ALLOWED, scopes=oauth.IDENTITY_SCOPES)
+    assert client.get("/auth/callback?state=state-123&code=abc").status_code == 400
+    assert revoked == []
+
+
+def test_failed_revoke_still_refuses_cleanly(client, monkeypatch, app):
+    start_sign_in(client, monkeypatch)
+    fake_google(monkeypatch, "intruder@evil.com")
+    monkeypatch.setattr(oauth, "revoke", lambda token: False)  # Google unreachable
+    assert client.get("/auth/callback?state=state-123&code=abc").status_code == 403
+    assert db_rows(app, "SELECT * FROM users") == []
 
 
 def test_unverified_email_is_refused(client, monkeypatch):

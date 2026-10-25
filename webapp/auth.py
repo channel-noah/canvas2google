@@ -27,6 +27,13 @@ def login_required(view):
     return wrapped
 
 
+def _revoke_quietly(creds) -> None:
+    """Best effort: a failed revoke must never turn a refusal into a crash."""
+    token = getattr(creds, "refresh_token", None) or getattr(creds, "token", None)
+    if token and not oauth.revoke(token):
+        current_app.logger.warning("Couldn't revoke Google access for a refused sign-in")
+
+
 def _fail(message: str, status: int = 400):
     return render_template("error.html", message=message), status
 
@@ -70,6 +77,10 @@ def callback():
     # Check the allowlist before storing anything about this account.
     if not identity.get("email_verified") or email not in settings.allowed_emails:
         current_app.logger.warning("Sign-in refused for an account not on the allowlist")
+        # They just granted this app access in Google; give it back, so it doesn't
+        # linger in their account. (Not done for allowed users below: revoking any
+        # token cancels the whole grant, including a token we already rely on.)
+        _revoke_quietly(creds)
         return _fail("This Google account isn't allowed to use this site.", 403)
     if not oauth.has_sync_scopes(creds):
         return _fail("Calendar and Tasks access are both needed. Please sign in again and allow both.")
