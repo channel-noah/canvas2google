@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from flask import Flask
 
 from . import sync_runner
-from .db import get_db, users_due_for_auto_sync
+from .db import get_db, prune_rate_limits, users_due_for_auto_sync
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +38,7 @@ def sync_all_users(app: Flask, trigger: str = "scheduled") -> list[UserRun]:
     with app.app_context():
         db = get_db()
         box = app.config["SECRET_BOX"]
+        prune_rate_limits(db)  # old rate-limit counters are no longer needed
         for user in users_due_for_auto_sync(db):
             try:
                 outcome = sync_runner.run_sync(db, box, user["id"], dry_run=False, trigger=trigger)

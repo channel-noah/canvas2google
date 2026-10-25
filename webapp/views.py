@@ -9,7 +9,7 @@ from flask import Blueprint, current_app, flash, g, redirect, render_template, r
 from canvas_sync.config import ConfigError, validate_feed_url
 from canvas_sync.feed import FeedError, fetch_feed, parse_feed, upcoming
 
-from . import oauth, sync_runner
+from . import limits, oauth, sync_runner
 from .auth import login_required
 from .crypto import SecretError, secret_context
 from .db import delete_user, get_db, recent_runs, set_secret, update_preferences
@@ -44,7 +44,10 @@ def dashboard():
     tz = sync_runner.user_timezone(get_db(), g.user["id"])
     feed_url, problem = _feed_url_or_none()
     items = []
-    if feed_url:
+    if feed_url and limits.hit(get_db(), limits.FEED_FETCH, f"user:{g.user['id']}"):
+        # Each dashboard load fetches the Canvas feed; don't let refresh-spam hammer Canvas.
+        problem = "You've refreshed a lot recently, so upcoming items aren't shown. Try again in a few minutes."
+    elif feed_url:
         try:
             items = upcoming(parse_feed(fetch_feed(feed_url)), tz=tz)
         except FeedError as exc:
@@ -128,6 +131,8 @@ def delete_account():
 @bp.post("/sync")
 @login_required
 def sync():
+    if limits.hit(get_db(), limits.SYNC, f"user:{g.user['id']}"):
+        return limits.too_many(limits.SYNC)
     dry_run = request.form.get("mode") != "sync"
     outcome = sync_runner.run_sync(get_db(), current_app.config["SECRET_BOX"], g.user["id"], dry_run)
     return render_template("results.html", outcome=outcome)

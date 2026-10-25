@@ -84,6 +84,7 @@ def create_app(settings: Settings | None = None, start_scheduler: bool = False) 
     app.add_template_filter(when_text, "when")
     app.add_template_global(settings.auto_sync_schedule, "auto_sync_schedule")
     app.add_template_global(settings.site_verification, "site_verification")
+    app.add_template_global(settings.signup_mode, "signup_mode")
 
     @app.after_request
     def security_headers(response):

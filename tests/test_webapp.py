@@ -9,7 +9,7 @@ import pytest
 from cryptography.fernet import Fernet
 
 from fakes import FakeCalendarService, FakeTasksService
-from helpers import ALLOWED, FEED, SAMPLE_FEED, csrf_token, db_file, db_rows, make_item
+from helpers import ALLOWED, FEED, SAMPLE_FEED, csrf_token, db_file, db_rows, fake_google, make_item, start_sign_in
 from webapp import oauth, sync_runner, views
 from webapp.crypto import SecretBox, SecretError, secret_context
 from webapp.db import get_db
@@ -51,29 +51,6 @@ def test_errors_never_show_stack_traces(client):
 
 
 # --- Sign-in ----------------------------------------------------------------
-
-def start_sign_in(client, monkeypatch):
-    monkeypatch.setattr(oauth, "authorization_url",
-                        lambda settings, force_consent: ("https://accounts.google.com/o/oauth2/auth?x", "state-123", "verifier"))
-    response = client.get("/auth/google")
-    assert response.status_code == 302 and response.headers["Location"].startswith("https://accounts.google.com/")
-    return response
-
-
-def fake_google(monkeypatch, email, verified=True, scopes=None, refresh_token="refresh-SECRET"):
-    creds = SimpleNamespace(
-        refresh_token=refresh_token,
-        granted_scopes=scopes if scopes is not None else oauth.SCOPES,
-        scopes=None,
-        to_json=lambda: '{"refresh_token": "refresh-SECRET"}',
-    )
-    monkeypatch.setattr(oauth, "exchange_code", lambda *a: creds)
-    monkeypatch.setattr(oauth, "verify_identity",
-                        lambda settings, c: {"email": email, "email_verified": verified, "sub": "sub-" + email})
-    revoked = []
-    monkeypatch.setattr(oauth, "revoke", lambda token: revoked.append(token) or True)
-    return revoked
-
 
 def test_session_cookie_is_httponly_and_samesite(client, monkeypatch):
     cookie = start_sign_in(client, monkeypatch).headers["Set-Cookie"]

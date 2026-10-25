@@ -18,8 +18,9 @@ REQUIRED = (
     "APP_ENCRYPTION_KEY",
     "GOOGLE_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET",
-    "ALLOWED_EMAILS",
 )
+SIGNUP_MODES = ("invite", "open")
+DEFAULT_MAX_USERS = 90  # under Google's 100-user lifetime cap for unverified apps
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,9 @@ class Settings:
     cron_secret: str | None = None  # enables /tasks/sync-all when set
     site_verification: str | None = None  # Google Search Console meta-tag value
     on_vercel: bool = False  # automatic sync is Vercel's daily cron, not the in-app scheduler
+    # "invite": only ALLOWED_EMAILS may sign up. "open": any verified Google account.
+    signup_mode: str = "invite"
+    max_users: int = DEFAULT_MAX_USERS  # new sign-ups are refused once this many accounts exist
 
     @property
     def auto_sync_schedule(self) -> str:
@@ -54,7 +58,21 @@ def load_settings() -> Settings:
     if missing:
         raise ConfigError("Missing web app settings in .env: " + ", ".join(missing))
 
-    allowed = frozenset(e.strip().lower() for e in env["ALLOWED_EMAILS"].split(",") if e.strip())
+    signup_mode = os.environ.get("SIGNUP_MODE", "invite").strip().lower()
+    if signup_mode not in SIGNUP_MODES:
+        raise ConfigError("SIGNUP_MODE must be 'invite' or 'open'.")
+    allowed = frozenset(
+        e.strip().lower() for e in os.environ.get("ALLOWED_EMAILS", "").split(",") if e.strip()
+    )
+    if signup_mode == "invite" and not allowed:
+        # Invite-only with an empty list would lock everyone out; fail loudly instead.
+        raise ConfigError("Missing web app settings in .env: ALLOWED_EMAILS (required when SIGNUP_MODE=invite)")
+    try:
+        max_users = int(os.environ.get("MAX_USERS", DEFAULT_MAX_USERS))
+    except ValueError:
+        raise ConfigError("MAX_USERS must be a whole number.") from None
+    if max_users < 1:
+        raise ConfigError("MAX_USERS must be at least 1.")
     try:
         interval = float(os.environ.get("SYNC_INTERVAL_HOURS", Settings.sync_interval_hours))
     except ValueError:
@@ -85,4 +103,6 @@ def load_settings() -> Settings:
         cron_secret=cron_secret,
         site_verification=os.environ.get("GOOGLE_SITE_VERIFICATION", "").strip() or None,
         on_vercel=bool(os.environ.get("VERCEL")),
+        signup_mode=signup_mode,
+        max_users=max_users,
     )

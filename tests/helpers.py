@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from types import SimpleNamespace
 from datetime import date, datetime
 
 from canvas_sync.feed import CanvasItem
@@ -87,3 +88,32 @@ SAMPLE_FEED = (
     "BEGIN:VEVENT\r\nDTSTART:20991105T150000Z\r\nSUMMARY:No UID\r\nEND:VEVENT\r\n"
     "END:VCALENDAR\r\n"
 ).encode()
+
+
+# --- Google sign-in fakes ------------------------------------------------------
+
+def start_sign_in(client, monkeypatch, **environ):
+    from webapp import oauth
+
+    monkeypatch.setattr(oauth, "authorization_url",
+                        lambda settings, force_consent: ("https://accounts.google.com/o/oauth2/auth?x", "state-123", "verifier"))
+    response = client.get("/auth/google", environ_base=environ)
+    assert response.status_code == 302 and response.headers["Location"].startswith("https://accounts.google.com/")
+    return response
+
+
+def fake_google(monkeypatch, email, verified=True, scopes=None, refresh_token="refresh-SECRET", sub=None):
+    from webapp import oauth
+
+    creds = SimpleNamespace(
+        refresh_token=refresh_token,
+        granted_scopes=scopes if scopes is not None else oauth.SCOPES,
+        scopes=None,
+        to_json=lambda: '{"refresh_token": "refresh-SECRET"}',
+    )
+    monkeypatch.setattr(oauth, "exchange_code", lambda *a: creds)
+    monkeypatch.setattr(oauth, "verify_identity",
+                        lambda settings, c: {"email": email, "email_verified": verified, "sub": sub or "sub-" + email})
+    revoked = []
+    monkeypatch.setattr(oauth, "revoke", lambda token: revoked.append(token) or True)
+    return revoked

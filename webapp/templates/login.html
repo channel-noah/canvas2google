@@ -5,6 +5,6 @@
   <h1>Canvas → Google, automatically</h1>
   <p class="muted">Syncs your Canvas assignments to Google Tasks and your Canvas events to Google Calendar.</p>
   <a class="button primary" href="{{ url_for('auth.start') }}">Sign in with Google</a>
-  <p class="fine">Access is limited to approved accounts. The app only asks for calendars it creates and your Google Tasks.</p>
+  <p class="fine">{% if signup_mode == "invite" %}Access is limited to invited accounts. {% endif %}The app only asks for calendars it creates and your Google Tasks. <a href="{{ url_for('public.privacy') }}">Privacy policy</a></p>
 </section>
 {% endblock %}

@@ -7,9 +7,9 @@ import hmac
 
 from flask import Blueprint, current_app, g, redirect, render_template, request, session, url_for
 
-from . import oauth
+from . import limits, oauth
 from .crypto import secret_context
-from .db import get_db, get_secret, get_user, set_secret, upsert_user
+from .db import count_users, get_db, get_secret, get_user, set_secret, upsert_user, user_exists
 
 bp = Blueprint("auth", __name__)
 
@@ -34,6 +34,18 @@ def _revoke_quietly(creds) -> None:
         current_app.logger.warning("Couldn't revoke Google access for a refused sign-in")
 
 
+def _refusal_reason(settings, db, identity: dict, email: str) -> tuple[str, str] | None:
+    """Why this Google account may not use the site, as (log reason, user message), or None."""
+    if not identity.get("email_verified"):
+        return "unverified email", "This Google account's email isn't verified."
+    if settings.signup_mode == "invite" and email not in settings.allowed_emails:
+        return "not invited", "This Google account isn't allowed to use this site."
+    # Existing users can always sign back in; only new accounts count toward the cap.
+    if not user_exists(db, identity["sub"]) and count_users(db) >= settings.max_users:
+        return "user cap reached", "Sorry, this site isn't accepting new accounts right now."
+    return None
+
+
 def _fail(message: str, status: int = 400):
     return render_template("error.html", message=message), status
 
@@ -46,6 +58,8 @@ def login():
 @bp.get("/auth/google")
 def start():
     settings = current_app.config["SETTINGS"]
+    if limits.hit(get_db(), limits.SIGN_IN, limits.ip_label()):
+        return limits.too_many(limits.SIGN_IN)
     url, state, verifier = oauth.authorization_url(settings, force_consent=request.args.get("consent") == "1")
     # Remembered in the (signed) session cookie and checked on the way back.
     session["oauth_state"] = state
@@ -56,6 +70,8 @@ def start():
 @bp.get("/auth/callback")
 def callback():
     settings = current_app.config["SETTINGS"]
+    if limits.hit(get_db(), limits.SIGN_IN, limits.ip_label()):
+        return limits.too_many(limits.SIGN_IN)
     expected_state = session.pop("oauth_state", None)
     verifier = session.pop("oauth_verifier", None)
 
@@ -74,18 +90,19 @@ def callback():
         return _fail("Google sign-in didn't complete. Please try again.")
 
     email = str(identity.get("email", "")).lower()
-    # Check the allowlist before storing anything about this account.
-    if not identity.get("email_verified") or email not in settings.allowed_emails:
-        current_app.logger.warning("Sign-in refused for an account not on the allowlist")
+    db = get_db()
+    # Decide whether this account may use the site *before* storing anything.
+    refusal = _refusal_reason(settings, db, identity, email)
+    if refusal:
+        current_app.logger.warning("Sign-in refused (%s)", refusal[0])
         # They just granted this app access in Google; give it back, so it doesn't
         # linger in their account. (Not done for allowed users below: revoking any
         # token cancels the whole grant, including a token we already rely on.)
         _revoke_quietly(creds)
-        return _fail("This Google account isn't allowed to use this site.", 403)
+        return _fail(refusal[1], 403)
     if not oauth.has_sync_scopes(creds):
         return _fail("Calendar and Tasks access are both needed. Please sign in again and allow both.")
 
-    db = get_db()
     user_id = upsert_user(db, identity["sub"], email)
     box = current_app.config["SECRET_BOX"]
     if creds.refresh_token:

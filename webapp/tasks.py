@@ -11,7 +11,8 @@ import hmac
 
 from flask import Blueprint, abort, current_app, jsonify, request
 
-from . import scheduler
+from . import limits, scheduler
+from .db import get_db
 
 bp = Blueprint("tasks", __name__)
 
@@ -21,11 +22,15 @@ def sync_all():
     secret = current_app.config["SETTINGS"].cron_secret
     if not secret:
         abort(404)  # endpoint switched off unless a secret is configured
+    # After a few wrong secrets from one IP, stop checking at all (no guessing).
+    if limits.already_over(get_db(), limits.CRON_FAILURES, limits.ip_label()):
+        return limits.too_many(limits.CRON_FAILURES)
     supplied = request.headers.get("Authorization", "")
     # compare_digest takes the same time whether the first or last character is
     # wrong, so response timing can't be used to guess the secret.
     if not hmac.compare_digest(supplied.encode(), f"Bearer {secret}".encode()):
         current_app.logger.warning("Rejected an unauthorized call to /tasks/sync-all")
+        limits.hit(get_db(), limits.CRON_FAILURES, limits.ip_label())
         abort(401)
 
     results = scheduler.sync_all_users(current_app._get_current_object(), trigger="cron")

@@ -25,6 +25,7 @@ from sqlalchemy import (
     MetaData,
     Table,
     Text,
+    case,
     create_engine,
     delete,
     event,
@@ -83,6 +84,12 @@ job_locks = Table(  # one sync per user at a time, across processes and servers
     "job_locks", metadata,
     Column("name", Text, primary_key=True),
     Column("expires_at", Float, nullable=False),
+)
+rate_limits = Table(  # fixed-window counters; keys never contain raw IP addresses
+    "rate_limits", metadata,
+    Column("key", Text, primary_key=True),
+    Column("window_start", Float, nullable=False),
+    Column("hits", Integer, nullable=False),
 )
 
 # Columns added after the first local release. Old SQLite databases get them in
@@ -227,6 +234,51 @@ def try_lock(db: Connection, name: str, ttl: float = LOCK_TTL_SECONDS) -> bool:
 def release_lock(db: Connection, name: str) -> None:
     db.execute(delete(job_locks).where(job_locks.c.name == name))
     db.commit()
+
+
+# --- Rate limiting --------------------------------------------------------------
+
+def count_hit(db: Connection, key: str, window_seconds: int) -> int:
+    """Record one hit for `key` and return the hits so far in the current window.
+
+    One atomic upsert: a new key starts at 1; in the same window the counter goes
+    up by 1; in a new window it resets to 1. Concurrent requests can't both read
+    a stale count, on SQLite or Postgres.
+    """
+    window_start = float(int(time.time() // window_seconds) * window_seconds)
+    stmt = _insert(db, rate_limits).values(key=key, window_start=window_start, hits=1)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["key"],
+        set_={
+            "hits": case((rate_limits.c.window_start == stmt.excluded.window_start, rate_limits.c.hits + 1), else_=1),
+            "window_start": stmt.excluded.window_start,
+        },
+    ).returning(rate_limits.c.hits)
+    hits = db.execute(stmt).scalar_one()
+    db.commit()
+    return hits
+
+
+def current_hits(db: Connection, key: str, window_seconds: int) -> int:
+    """Hits for `key` in the current window, without recording a new one."""
+    window_start = float(int(time.time() // window_seconds) * window_seconds)
+    row = db.execute(
+        select(rate_limits.c.hits).where(rate_limits.c.key == key, rate_limits.c.window_start == window_start)
+    ).first()
+    return row.hits if row else 0
+
+
+def prune_rate_limits(db: Connection, older_than_seconds: float = 24 * 3600) -> None:
+    db.execute(delete(rate_limits).where(rate_limits.c.window_start < time.time() - older_than_seconds))
+    db.commit()
+
+
+def count_users(db: Connection) -> int:
+    return db.execute(select(func.count()).select_from(users)).scalar_one()
+
+
+def user_exists(db: Connection, google_sub: str) -> bool:
+    return db.execute(select(users.c.id).where(users.c.google_sub == google_sub)).first() is not None
 
 
 # --- Encrypted secrets --------------------------------------------------------
