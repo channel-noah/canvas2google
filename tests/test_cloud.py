@@ -117,6 +117,36 @@ def test_delete_requires_confirmation(logged_in, app, user_id):
     assert db_rows(app, "SELECT COUNT(*) FROM users") == [(1,)]
 
 
+# --- Settings on Vercel -------------------------------------------------------
+
+def _required_env(monkeypatch):
+    for name in ("FLASK_SECRET_KEY", "APP_ENCRYPTION_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "ALLOWED_EMAILS"):
+        monkeypatch.setenv(name, "x")
+
+
+def test_vercel_refuses_to_start_on_sqlite(monkeypatch):
+    from canvas_sync.config import ConfigError
+    from webapp.settings import load_settings
+
+    _required_env(monkeypatch)
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with pytest.raises(ConfigError, match="Postgres"):
+        load_settings()
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@db.example/app")
+    assert load_settings().database_url.startswith("postgresql")
+
+
+def test_short_cron_secret_is_rejected(monkeypatch):
+    from canvas_sync.config import ConfigError
+    from webapp.settings import load_settings
+
+    _required_env(monkeypatch)
+    monkeypatch.setenv("CRON_SECRET", "too-short")
+    with pytest.raises(ConfigError, match="32"):
+        load_settings()
+
+
 # --- Postgres URL handling ----------------------------------------------------
 
 @pytest.mark.parametrize("url", ["postgres://u:p@db.example/app?sslmode=require",

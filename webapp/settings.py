@@ -55,6 +55,11 @@ def load_settings() -> Settings:
         # Polling Canvas and Google more often than every 15 minutes gains little
         # and risks hitting API rate limits.
         raise ConfigError("SYNC_INTERVAL_HOURS must be at least 0.25 (15 minutes).")
+    database_url = os.environ.get("DATABASE_URL", "").strip() or Settings.database_url
+    if os.environ.get("VERCEL") and database_url.startswith("sqlite"):
+        # Vercel's disk is temporary and not shared between instances: a SQLite
+        # file there would seem to work, then lose everyone's data. Refuse to start.
+        raise ConfigError("DATABASE_URL must point to Postgres on Vercel (connect the Neon database).")
     cron_secret = os.environ.get("CRON_SECRET", "").strip() or None
     if cron_secret and len(cron_secret) < 32:
         # This token is the only thing protecting the sync endpoint; make it unguessable.
@@ -66,7 +71,7 @@ def load_settings() -> Settings:
         google_client_secret=env["GOOGLE_CLIENT_SECRET"],
         allowed_emails=allowed,
         redirect_uri=os.environ.get("OAUTH_REDIRECT_URI", Settings.redirect_uri),
-        database_url=os.environ.get("DATABASE_URL", "").strip() or Settings.database_url,
+        database_url=database_url,
         secure_cookies=os.environ.get("SECURE_COOKIES", "false").lower() == "true",
         sync_interval_hours=interval,
         cron_secret=cron_secret,
