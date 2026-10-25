@@ -121,7 +121,7 @@ def _split_course(summary: str) -> tuple[str, str | None]:
         return summary, None
     title, course = match["title"], match["course"].strip()
     # Section overrides repeat the section name in the title, e.g.
-    # "Chapter 4 Homework (CS-170-01 DISCRETE STRUCTURES (2026FA))"; drop that part.
+    # "Chapter 4 Homework (MATH-210-01 LINEAR ALGEBRA (2099FA))"; drop that part.
     section = title.rfind(f" ({course}")
     if section > 0 and title.endswith(")"):
         title = title[:section]

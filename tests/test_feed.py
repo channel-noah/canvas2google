@@ -42,7 +42,7 @@ def test_items_without_uid_are_skipped(items):
 
 def test_course_is_split_from_title(items):
     hw = items["event-assignment-1001"]
-    assert (hw.title, hw.course) == ("Homework 3", "CS-170-01")
+    assert (hw.title, hw.course) == ("Homework 3", "MATH-210-01")
 
 
 def test_override_title_drops_repeated_section_name(items):

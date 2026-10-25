@@ -85,7 +85,7 @@ There are five trust boundaries:
 | T7 | **Network attacker** | HTTPS only. Certificate verification. PKCE. Loopback redirect for the CLI (RFC 8252). | Mitigated |
 | T8 | **Hangs** | Timeouts on every call: feed 5/30 s, Google API 30 s, token exchange 30 s, refresh 120 s, database connect 10 s. | Mitigated |
 | T9 | **Vulnerable dependencies** | All runtime dependencies pinned. `pip-audit`: no known vulnerabilities. | Mitigated, see R7 |
-| T10 | **Insecure code patterns** | `bandit`: 0 issues. One justified suppression (`# nosec B105` on Google's public token URL, which bandit mistook for a password). | Mitigated |
+| T10 | **Insecure code patterns** | `bandit` (including `scripts/`): 0 issues. Three justified suppressions: `# nosec B105` on Google's public token URL (mistaken for a password) and two `# nosec B106` on fake values in the demo script. | Mitigated |
 | T12 | **Wrong-type sync** | Strict UID classification. Unknown items are reported, never synced. | Mitigated |
 
 ## 4. Remaining (accepted) risks
@@ -123,7 +123,7 @@ There are five trust boundaries:
 pip install -r requirements-dev.txt
 pytest --cov=canvas_sync --cov=webapp      # 141 tests; network is blocked inside tests
 pip-audit -r requirements.txt
-bandit -r canvas_sync webapp cli.py app.py
+bandit -r canvas_sync webapp cli.py app.py scripts
 git status --ignored                       # .env, .env.production, credentials.json, token.json, instance/ must be ignored (!!)
 ```
 

@@ -17,3 +17,6 @@ tests/
 htmlcov/
 __pycache__/
 cli.py
+
+# Demo/dev tooling, not needed by the website
+scripts/

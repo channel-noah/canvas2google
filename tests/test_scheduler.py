@@ -112,8 +112,10 @@ def test_scheduler_thread_runs_and_stops(app, user_id, fake_google, monkeypatch)
     monkeypatch.setattr(scheduler, "FIRST_RUN_DELAY_SECONDS", 0.05)
     stop = scheduler.start_scheduler(app, interval_hours=1)
     try:
-        for _ in range(100):
-            if db_rows(app, "SELECT COUNT(*) FROM sync_runs")[0][0]:
+        # Wait for the run to *finish*: its row is written when it starts (ok still
+        # empty) and filled in at the end. Waiting only for the row was flaky.
+        for _ in range(200):
+            if db_rows(app, "SELECT COUNT(*) FROM sync_runs WHERE finished_at IS NOT NULL")[0][0]:
                 break
             time.sleep(0.05)
     finally:

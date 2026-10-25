@@ -62,7 +62,7 @@ SAMPLE_FEED = (
     # Timed assignment with an HTML description, escaped the way Canvas sends it.
     "BEGIN:VEVENT\r\nUID:event-assignment-1001\r\n"
     "DTSTART:20991030T030000Z\r\nDTEND:20991030T030000Z\r\n"
-    "SUMMARY:Homework 3 [CS-170-01]\r\n"
+    "SUMMARY:Homework 3 [MATH-210-01]\r\n"
     "URL:https://school.instructure.com/calendar#assignment_1001\r\n"
     "X-ALT-DESC;FMTTYPE=text/html:<p>Read ch. 4\\, then answer\\; carefully.</p>"
     "<script>alert(1)</script><p>Tom&nbsp\\;&amp\\; Jerry</p>\r\n"
@@ -74,7 +74,7 @@ SAMPLE_FEED = (
     # Section override: the title repeats the section name.
     "BEGIN:VEVENT\r\nUID:event-assignment-override-77\r\n"
     "DTSTART:20991012T030000Z\r\nDTEND:20991012T030000Z\r\n"
-    "SUMMARY:Ch 4 Homework (CS-170-01 DISCRETE STRUCTURES (2099FA)) [CS-170-01]\r\n"
+    "SUMMARY:Ch 4 Homework (MATH-210-01 LINEAR ALGEBRA (2099FA)) [MATH-210-01]\r\n"
     "END:VEVENT\r\n"
     # Calendar event with a terminal escape sequence hidden in the title.
     "BEGIN:VEVENT\r\nUID:event-calendar-event-2002\r\n"
@@ -82,7 +82,7 @@ SAMPLE_FEED = (
     "SUMMARY:\x1b[31mLab session\x1b[0m [PHYS-201-01]\r\nEND:VEVENT\r\n"
     # Unknown type: must not be synced as anything.
     "BEGIN:VEVENT\r\nUID:event-quiz-5\r\n"
-    "DTSTART:20991105T150000Z\r\nSUMMARY:Mystery [CS-170-01]\r\nEND:VEVENT\r\n"
+    "DTSTART:20991105T150000Z\r\nSUMMARY:Mystery [MATH-210-01]\r\nEND:VEVENT\r\n"
     # Missing UID: skipped entirely.
     "BEGIN:VEVENT\r\nDTSTART:20991105T150000Z\r\nSUMMARY:No UID\r\nEND:VEVENT\r\n"
     "END:VCALENDAR\r\n"
