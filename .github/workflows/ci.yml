@@ -1,0 +1,39 @@
+# Runs the test suite and security checks on every push and pull request.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: this workflow only needs to read the code.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Actions are pinned to exact commits (not movable tags like @v7), so a
+      # compromised or re-tagged release can't change what runs here.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false  # don't leave a GitHub token in the checkout
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.12"  # same as Vercel
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Tests
+        run: pytest --cov=canvas_sync --cov=webapp --cov-report=term
+
+      - name: Insecure code patterns (bandit)
+        run: bandit -r canvas_sync webapp cli.py app.py scripts -q
+
+      - name: Known-vulnerable dependencies (pip-audit)
+        run: pip-audit -r requirements.txt

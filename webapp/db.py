@@ -41,6 +41,8 @@ from sqlalchemy.pool import NullPool
 
 from canvas_sync.config import restrict_permissions
 
+from .crypto import SecretError
+
 DEFAULT_TIMEZONE = "America/New_York"
 LOCK_TTL_SECONDS = 15 * 60  # a crashed sync's lock expires after this
 SECRET_NAMES = ("feed_url", "google_token")
@@ -294,6 +296,31 @@ def set_secret(db: Connection, user_id: int, name: str, blob: bytes) -> None:
     stmt = _insert(db, user_secrets).values(user_id=user_id, **{name: blob})
     db.execute(stmt.on_conflict_do_update(index_elements=["user_id"], set_={name: getattr(stmt.excluded, name)}))
     db.commit()
+
+
+def rotate_secrets(db: Connection, box) -> tuple[int, int]:
+    """Re-encrypt every stored secret that still uses an older key.
+
+    Returns (rotated, unreadable). Unreadable values (no configured key can
+    decrypt them) are left untouched and only counted, never logged.
+    """
+    rotated = unreadable = 0
+    rows = db.execute(select(user_secrets.c.user_id, user_secrets.c.feed_url, user_secrets.c.google_token)).all()
+    for row in rows:
+        changes = {}
+        for name in SECRET_NAMES:
+            value = getattr(row, name)
+            if value is None or not box.needs_rotation(bytes(value)):
+                continue
+            try:
+                changes[name] = box.rotate(bytes(value))
+            except SecretError:
+                unreadable += 1
+        if changes:
+            db.execute(update(user_secrets).where(user_secrets.c.user_id == row.user_id).values(**changes))
+            rotated += len(changes)
+    db.commit()
+    return rotated, unreadable
 
 
 def _check_secret_name(name: str) -> str:

@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from flask import Flask
 
 from . import sync_runner
-from .db import get_db, prune_rate_limits, users_due_for_auto_sync
+from .db import get_db, prune_rate_limits, rotate_secrets, users_due_for_auto_sync
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +39,10 @@ def sync_all_users(app: Flask, trigger: str = "scheduled") -> list[UserRun]:
         db = get_db()
         box = app.config["SECRET_BOX"]
         prune_rate_limits(db)  # old rate-limit counters are no longer needed
+        # Finish any key rotation in progress: re-encrypt secrets still under an old key.
+        rotated, unreadable = rotate_secrets(db, box)
+        if rotated or unreadable:
+            log.info("Key rotation: %d secret(s) re-encrypted, %d unreadable", rotated, unreadable)
         for user in users_due_for_auto_sync(db):
             try:
                 outcome = sync_runner.run_sync(db, box, user["id"], dry_run=False, trigger=trigger)

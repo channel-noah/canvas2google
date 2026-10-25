@@ -1,5 +1,7 @@
 # Canvas2Google
 
+[![CI](https://github.com/channel-noah/canvas2google/actions/workflows/ci.yml/badge.svg)](https://github.com/channel-noah/canvas2google/actions/workflows/ci.yml)
+
 **Automatically syncs Canvas LMS assignments to Google Tasks and Canvas events to Google Calendar.**
 
 Canvas only offers a read-only calendar feed, so due dates never show up in the tools students actually use. Canvas2Google reads that feed and keeps a dedicated **"Canvas"** Google Calendar and a **"Canvas"** Google Tasks list up to date: creating new items, updating changed ones, and never making duplicates.
@@ -77,8 +79,11 @@ tests/            Test suite (network blocked; fake Google services)
 | **Web hardening** | CSRF tokens; **CSP with no scripts at all**; `__Host-` Secure/HttpOnly/SameSite cookies; HSTS; no framing; no stack traces; auto-escaped templates. |
 | **SSRF** | The server only fetches `https://*.instructure.com/feeds/calendars/*.ics`, never follows redirects, and rejects metadata IPs, credentials in URLs, odd ports and lookalike domains. |
 | **Untrusted input** | Canvas content is treated as hostile: HTML is parsed, never rendered; control characters are stripped (no terminal escape injection); size and length caps apply. |
+| **Abuse controls** | Database-backed rate limits (sign-in per IP, syncs and Canvas fetches per user, lockout after wrong cron secrets), with IPs stored only as keyed hashes. A user cap, and an invite-only or open sign-up mode. |
+| **Key rotation** | `APP_ENCRYPTION_KEY=NEW,OLD` (MultiFernet): new data uses the newest key, the daily sync re-encrypts the rest, then the old key is removed. |
+| **Multi-user isolation** | Tests prove one user can't see, change or delete another's data, and no route takes a user ID. |
 | **Secret hygiene** | Nothing secret was ever committed (full-history scans before every push, using a scanner that is **self-tested against a known fake**). Errors never echo URLs or tokens. OAuth codes are redacted from request logs. |
-| **Supply chain** | Every dependency pinned. `pip-audit` clean. `bandit` clean, with three documented suppressions: one false positive, plus two deliberately fake values in the demo script. |
+| **Supply chain** | Every dependency pinned; Dependabot proposes updates weekly. CI pins GitHub Actions to exact commits and runs with read-only permissions. `pip-audit` clean. `bandit` clean, with three documented suppressions: one false positive, plus two deliberately fake values in the demo script. |
 
 The full analysis (assets, trust boundaries, 24 threats, 14 accepted risks, and incidents caught during development) is in **[THREAT_MODEL.md](THREAT_MODEL.md)**.
 
@@ -89,10 +94,12 @@ pip install -r requirements.txt -r requirements-dev.txt
 pytest --cov=canvas_sync --cov=webapp
 ```
 
-- **141 tests, about 90% coverage, runs in about 3 seconds.**
+- **181 tests, about 92% coverage, runs in a few seconds.**
 - **The network is blocked inside every test**, so nothing can reach Canvas or a real Google account. Google is replaced by in-memory fakes that record every write and mimic `PATCH` semantics.
 - Covers parsing edge cases, sync behavior (create / no-op / update / dry run / re-link / recreate), sign-in rules (bad `state`, non-allowlisted accounts, missing scopes), CSRF, encryption at rest, XSS escaping, SSRF inputs, the cron secret, HTTPS cookie flags, time zones across DST, and lock exclusivity across connections.
 - **The tests themselves were tested** by deliberately planting bugs (disabling CSRF, removing the allowlist, breaking the lock, dropping the time zone). Every one was caught, and one gap was found and fixed along the way.
+
+GitHub Actions runs the tests, `bandit` and `pip-audit` on every push, using Python 3.12 like production ([`ci.yml`](.github/workflows/ci.yml)).
 
 Security checks:
 
@@ -140,11 +147,18 @@ A few things the project taught me, each written up in [THREAT_MODEL.md §5](THR
 - **Security controls interact.** A strict `Referrer-Policy: no-referrer` would have broken every form in production, because the CSRF library checks the `Referer` header over HTTPS.
 - **Rotate anything that might be exposed.** An OAuth client secret appeared in automation screenshots and was rotated the same day.
 
+### Rotating the encryption key
+
+1. Generate a key: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+2. Set `APP_ENCRYPTION_KEY=NEW_KEY,OLD_KEY` and redeploy.
+3. After the next daily sync (or `flask --app webapp rotate-keys`), everything is under the new key.
+4. Set `APP_ENCRYPTION_KEY=NEW_KEY` and redeploy.
+
 ## Roadmap
 
-- Google OAuth verification for the Tasks scope, then opening sign-ups (removing the allowlist).
-- Per-IP rate limiting, encryption-key rotation (`MultiFernet`), and Dependabot.
-- Tests that one user can never see or change another user's data, before multiple users are allowed.
+- Google OAuth verification for the Tasks scope, then switching `SIGNUP_MODE` to `open`.
+- A landing page and terms of service for public visitors.
+- Monitoring and alerts for failed syncs.
 
 ## About
 

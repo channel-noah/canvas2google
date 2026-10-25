@@ -1,0 +1,13 @@
+# Weekly pull requests for dependency updates (security fixes arrive this way too).
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions  # keeps the pinned action commits up to date
+    directory: "/"
+    schedule:
+      interval: weekly

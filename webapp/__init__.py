@@ -22,7 +22,7 @@ from canvas_sync.state import SyncState
 
 from . import auth, public, scheduler, tasks, views
 from .crypto import SecretBox
-from .db import find_user_id, get_db, init_db, load_state, save_state
+from .db import find_user_id, get_db, init_db, load_state, rotate_secrets, save_state
 from .settings import Settings, load_settings
 
 # Content Security Policy: the browser may only load our own stylesheet. No
@@ -117,6 +117,14 @@ def create_app(settings: Settings | None = None, start_scheduler: bool = False) 
         state = SyncState.load()  # validates and migrates the file
         save_state(db, user_id, state.to_dict())
         click.echo(f"Imported {len(state.events)} event(s) and {len(state.tasks)} task(s).")
+
+    @app.cli.command("rotate-keys")
+    def rotate_keys() -> None:
+        """Re-encrypt all stored secrets with the newest APP_ENCRYPTION_KEY."""
+        rotated, unreadable = rotate_secrets(get_db(), app.config["SECRET_BOX"])
+        click.echo(f"Re-encrypted {rotated} secret(s); {unreadable} couldn't be read with any configured key.")
+        if unreadable:
+            raise SystemExit(1)
 
     @app.cli.command("sync-all")
     def sync_all() -> None:
