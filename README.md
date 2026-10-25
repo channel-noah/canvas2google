@@ -157,7 +157,6 @@ A few things the project taught me, each written up in [THREAT_MODEL.md §5](THR
 ## Roadmap
 
 - Google OAuth verification for the Tasks scope, then switching `SIGNUP_MODE` to `open`.
-- A landing page and terms of service for public visitors.
 - Monitoring and alerts for failed syncs.
 
 ## About

@@ -94,6 +94,9 @@ def build_demo_app():
         allowed_emails=frozenset({DEMO_EMAIL}),
         database_url="sqlite:///" + db_path.as_posix(),
         cron_secret="d" * 40,
+        # Describe automatic sync the way the live (Vercel) site does, so screenshots
+        # match production: "once a day" rather than the in-app scheduler's interval.
+        on_vercel=True,
     )
     app = create_app(settings)
 
