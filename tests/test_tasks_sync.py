@@ -26,6 +26,19 @@ def test_task_body_shape():
     assert body["notes"].endswith(f"{UID_MARKER}{ESSAY.uid}")
 
 
+def test_due_date_follows_the_users_time_zone_not_the_servers():
+    # QUIZ is due 2099-11-03 03:00 UTC. Daylight saving ended on Nov 1, so New
+    # York is UTC-5: that's Nov 2 at 10:00 PM there, but already Nov 3 in UTC.
+    from zoneinfo import ZoneInfo
+
+    eastern = task_body(QUIZ, ZoneInfo("America/New_York"))
+    assert eastern["due"] == "2099-11-02T00:00:00.000Z"
+    assert eastern["notes"].startswith("Due: Mon Nov 02, 2099 at 10:00 PM")
+
+    utc = task_body(QUIZ, ZoneInfo("UTC"))
+    assert utc["due"] == "2099-11-03T00:00:00.000Z"
+
+
 def test_task_body_never_includes_status():
     # Sending status on update would un-check tasks the user completed.
     assert "status" not in task_body(ESSAY)

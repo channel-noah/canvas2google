@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone, tzinfo
 from typing import Any
 
 from googleapiclient.errors import HttpError
@@ -62,14 +62,14 @@ def _is_date_only(value: object) -> bool:
     return isinstance(value, date) and not isinstance(value, datetime)
 
 
-def _time_fields(item: CanvasItem) -> tuple[dict, dict]:
+def _time_fields(item: CanvasItem, tz: tzinfo | None = None) -> tuple[dict, dict]:
     if item.all_day:
         start = item.start
         # iCal and Google both treat an all-day end date as exclusive (the day after).
         end = item.end if _is_date_only(item.end) and item.end > start else start + timedelta(days=1)
         return {"date": start.isoformat()}, {"date": end.isoformat()}
-    start = item.local_start
-    end = item.local_end if item.local_end and item.local_end > start else start
+    start = item.start_in(tz)
+    end = item.end_in(tz) if item.end_in(tz) and item.end_in(tz) > start else start
     # Send UTC so the request (and its fingerprint) is the same on any machine,
     # whatever its time zone. Google shows it in the calendar's own time zone.
     return (
@@ -78,8 +78,8 @@ def _time_fields(item: CanvasItem) -> tuple[dict, dict]:
     )
 
 
-def event_body(item: CanvasItem) -> dict:
-    start, end = _time_fields(item)
+def event_body(item: CanvasItem, tz: tzinfo | None = None) -> dict:
+    start, end = _time_fields(item, tz)
     summary = f"{item.title} ({item.course})" if item.course else item.title
     parts = [p for p in (item.description, f"Canvas: {item.url}" if item.url else "") if p]
     return {
@@ -118,17 +118,22 @@ def _update(service: Any, calendar_id: str, event_id: str, body: dict) -> str:
 
 
 def sync_events(
-    service: Any, items: list[CanvasItem], state: SyncState, dry_run: bool = False
+    service: Any,
+    items: list[CanvasItem],
+    state: SyncState,
+    dry_run: bool = False,
+    tz: tzinfo | None = None,
 ) -> EventSyncResult:
     """Create new events and update changed ones. Never creates duplicates.
 
     With dry_run=True, only reads from Google and never saves the state file.
+    `tz` only matters for Canvas times without a time zone ("floating" times).
     """
     result = EventSyncResult(dry_run=dry_run, calendar_created=ensure_calendar(service, state, dry_run))
     events = [i for i in items if i.kind == "event"]
 
     for item in events:
-        body = event_body(item)
+        body = event_body(item, tz)
         new_hash = fingerprint(body)
         entry = state.events.get(item.uid)
 

@@ -3,69 +3,16 @@
 Google and Canvas are replaced with fakes; nothing leaves the machine.
 """
 
-import re
-import sqlite3
 from types import SimpleNamespace
 
 import pytest
 from cryptography.fernet import Fernet
 
-from canvas_sync.feed import parse_feed
 from fakes import FakeCalendarService, FakeTasksService
-from helpers import SAMPLE_FEED, make_item
-from webapp import create_app, oauth, sync_runner, views
+from helpers import ALLOWED, FEED, SAMPLE_FEED, csrf_token, db_rows, make_item
+from webapp import oauth, sync_runner, views
 from webapp.crypto import SecretBox, SecretError, secret_context
-from webapp.db import get_db, get_secret, upsert_user
-from webapp.settings import Settings
-
-ALLOWED = "noah@example.com"
-FEED = "https://school.instructure.com/feeds/calendars/user_SECRETFEED123.ics"
-
-
-@pytest.fixture
-def app(tmp_path):
-    settings = Settings(
-        secret_key="test-secret-key",
-        encryption_key=Fernet.generate_key().decode(),
-        google_client_id="client-id.apps.googleusercontent.com",
-        google_client_secret="client-secret",
-        allowed_emails=frozenset({ALLOWED}),
-        database_path=tmp_path / "test.db",
-    )
-    app = create_app(settings)
-    app.config["TESTING"] = True
-    return app
-
-
-@pytest.fixture
-def client(app):
-    return app.test_client()
-
-
-@pytest.fixture
-def user_id(app):
-    with app.app_context():
-        return upsert_user(get_db(), "google-sub-1", ALLOWED)
-
-
-@pytest.fixture
-def logged_in(client, user_id):
-    with client.session_transaction() as s:
-        s["user_id"] = user_id
-    return client
-
-
-def csrf_token(client, path="/settings"):
-    html = client.get(path).get_data(as_text=True)
-    return re.search(r'name="csrf_token" value="([^"]+)"', html).group(1)
-
-
-def db_rows(app, sql, *args):
-    conn = sqlite3.connect(app.config["DATABASE_PATH"])
-    try:
-        return conn.execute(sql, args).fetchall()
-    finally:
-        conn.close()
+from webapp.db import get_db
 
 
 # --- Access control and headers -------------------------------------------

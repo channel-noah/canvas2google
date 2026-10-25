@@ -26,3 +26,47 @@ def block_network(monkeypatch):
 def state(tmp_path) -> SyncState:
     """A fresh state that saves to a temporary file, never the real sync_state.json."""
     return SyncState(path=tmp_path / "sync_state.json")
+
+
+# --- Web app fixtures (temp database, throwaway keys) ----------------------
+
+@pytest.fixture
+def app(tmp_path):
+    from cryptography.fernet import Fernet
+
+    from helpers import ALLOWED
+    from webapp import create_app
+    from webapp.settings import Settings
+
+    settings = Settings(
+        secret_key="test-secret-key",
+        encryption_key=Fernet.generate_key().decode(),
+        google_client_id="client-id.apps.googleusercontent.com",
+        google_client_secret="client-secret",
+        allowed_emails=frozenset({ALLOWED}),
+        database_path=tmp_path / "test.db",
+    )
+    app = create_app(settings)
+    app.config["TESTING"] = True
+    return app
+
+
+@pytest.fixture
+def client(app):
+    return app.test_client()
+
+
+@pytest.fixture
+def user_id(app):
+    from helpers import ALLOWED
+    from webapp.db import get_db, upsert_user
+
+    with app.app_context():
+        return upsert_user(get_db(), "google-sub-1", ALLOWED)
+
+
+@pytest.fixture
+def logged_in(client, user_id):
+    with client.session_transaction() as s:
+        s["user_id"] = user_id
+    return client

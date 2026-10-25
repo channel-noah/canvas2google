@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -38,7 +39,23 @@ CREATE TABLE IF NOT EXISTS sync_runs (
     summary_json  TEXT,
     error         TEXT
 );
+CREATE TABLE IF NOT EXISTS job_locks (   -- one sync per user at a time, across processes
+    name        TEXT PRIMARY KEY,
+    expires_at  REAL NOT NULL
+);
 """
+
+# Columns added after the first release. Each runs once, if the column is missing,
+# so existing databases are upgraded in place.
+_MIGRATIONS = [
+    ("users", "timezone", "ALTER TABLE users ADD COLUMN timezone TEXT"),
+    ("users", "auto_sync", "ALTER TABLE users ADD COLUMN auto_sync INTEGER NOT NULL DEFAULT 1"),
+    ("sync_runs", "trigger", "ALTER TABLE sync_runs ADD COLUMN trigger TEXT"),
+]
+_TABLE_INFO = {"users": "PRAGMA table_info(users)", "sync_runs": "PRAGMA table_info(sync_runs)"}
+
+DEFAULT_TIMEZONE = "America/New_York"
+LOCK_TTL_SECONDS = 15 * 60  # a crashed sync's lock expires after this
 
 # Column names can't be "?" placeholders, so each secret gets fixed SQL.
 _SECRET_SQL = {
@@ -71,6 +88,10 @@ def init_db(app: Flask) -> None:
     path = app.config["DATABASE_PATH"]
     with connect(path) as conn:
         conn.executescript(SCHEMA)
+        for table, column, sql in _MIGRATIONS:
+            columns = {row["name"] for row in conn.execute(_TABLE_INFO[table])}
+            if column not in columns:
+                conn.execute(sql)
     conn.close()
     restrict_permissions(path)
     app.teardown_appcontext(close_db)
@@ -101,7 +122,60 @@ def upsert_user(db: sqlite3.Connection, google_sub: str, email: str) -> int:
 
 
 def get_user(db: sqlite3.Connection, user_id: int) -> sqlite3.Row | None:
-    return db.execute("SELECT id, email FROM users WHERE id = ?", (user_id,)).fetchone()
+    return db.execute(
+        "SELECT id, email, COALESCE(timezone, ?) AS timezone, auto_sync FROM users WHERE id = ?",
+        (DEFAULT_TIMEZONE, user_id),
+    ).fetchone()
+
+
+def update_preferences(db: sqlite3.Connection, user_id: int, timezone: str, auto_sync: bool) -> None:
+    db.execute(
+        "UPDATE users SET timezone = ?, auto_sync = ? WHERE id = ?", (timezone, int(auto_sync), user_id)
+    )
+    db.commit()
+
+
+def users_due_for_auto_sync(db: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Users with automatic sync on and both a feed URL and a Google token saved."""
+    return db.execute(
+        "SELECT u.id, u.email FROM users u JOIN user_secrets s ON s.user_id = u.id "
+        "WHERE u.auto_sync = 1 AND s.feed_url IS NOT NULL AND s.google_token IS NOT NULL "
+        "ORDER BY u.id"
+    ).fetchall()
+
+
+# --- Cross-process lock ---------------------------------------------------------
+
+def try_lock(db: sqlite3.Connection, name: str, ttl: float = LOCK_TTL_SECONDS) -> bool:
+    """Take the named lock unless someone else holds an unexpired one.
+
+    BEGIN IMMEDIATE makes SQLite grant the write lock to one connection at a
+    time, so two processes (say, the scheduler and a button click) can't both
+    see the lock as free.
+    """
+    now = time.time()
+    db.commit()  # make sure no earlier transaction is still open
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        row = db.execute("SELECT expires_at FROM job_locks WHERE name = ?", (name,)).fetchone()
+        if row and row["expires_at"] > now:
+            db.rollback()
+            return False
+        db.execute(
+            "INSERT INTO job_locks (name, expires_at) VALUES (?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET expires_at = excluded.expires_at",
+            (name, now + ttl),
+        )
+        db.commit()
+        return True
+    except BaseException:
+        db.rollback()
+        raise
+
+
+def release_lock(db: sqlite3.Connection, name: str) -> None:
+    db.execute("DELETE FROM job_locks WHERE name = ?", (name,))
+    db.commit()
 
 
 # --- Encrypted secrets --------------------------------------------------------
@@ -132,10 +206,10 @@ def save_state(db: sqlite3.Connection, user_id: int, data: dict) -> None:
     db.commit()
 
 
-def start_run(db: sqlite3.Connection, user_id: int, dry_run: bool) -> int:
+def start_run(db: sqlite3.Connection, user_id: int, dry_run: bool, trigger: str = "manual") -> int:
     cur = db.execute(
-        "INSERT INTO sync_runs (user_id, started_at, dry_run) VALUES (?, ?, ?)",
-        (user_id, _now(), int(dry_run)),
+        "INSERT INTO sync_runs (user_id, started_at, dry_run, trigger) VALUES (?, ?, ?, ?)",
+        (user_id, _now(), int(dry_run), trigger),
     )
     db.commit()
     return cur.lastrowid
@@ -151,7 +225,7 @@ def finish_run(db: sqlite3.Connection, run_id: int, ok: bool, summary: dict | No
 
 def recent_runs(db: sqlite3.Connection, user_id: int, limit: int = 5) -> list[dict]:
     rows = db.execute(
-        "SELECT started_at, dry_run, ok, summary_json, error FROM sync_runs "
+        "SELECT started_at, dry_run, ok, summary_json, error, COALESCE(trigger, 'manual') AS trigger FROM sync_runs "
         "WHERE user_id = ? ORDER BY id DESC LIMIT ?",
         (user_id, limit),
     ).fetchall()

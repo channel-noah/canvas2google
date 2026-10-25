@@ -1,6 +1,8 @@
 """Canvas2Google web app (Flask).
 
-Run locally with:  flask --app webapp run
+Run locally with:            flask --app webapp run
+...with automatic syncing:   flask --app "webapp:create_app(start_scheduler=True)" run
+One-off sync for cron:       flask --app webapp sync-all
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from flask_wtf.csrf import CSRFError, CSRFProtect
 from canvas_sync.display import when_text
 from canvas_sync.state import SyncState
 
-from . import auth, views
+from . import auth, scheduler, views
 from .crypto import SecretBox
 from .db import get_db, init_db, load_state, save_state
 from .settings import Settings, load_settings
@@ -44,7 +46,9 @@ class RedactQueryStrings(logging.Filter):
         return True
 
 
-def create_app(settings: Settings | None = None) -> Flask:
+def create_app(settings: Settings | None = None, start_scheduler: bool = False) -> Flask:
+    """Build the app. start_scheduler=True also starts automatic syncing; it's
+    off by default so tests and one-off commands never start background work."""
     settings = settings or load_settings()
     app = Flask(__name__)
     app.config.update(
@@ -68,6 +72,7 @@ def create_app(settings: Settings | None = None) -> Flask:
     app.register_blueprint(auth.bp)
     app.register_blueprint(views.bp)
     app.add_template_filter(when_text, "when")
+    app.add_template_global(settings.sync_interval_hours, "sync_interval_hours")
 
     @app.after_request
     def security_headers(response):
@@ -99,6 +104,21 @@ def create_app(settings: Settings | None = None) -> Flask:
         state = SyncState.load()  # validates and migrates the file
         save_state(db, row["id"], state.to_dict())
         click.echo(f"Imported {len(state.events)} event(s) and {len(state.tasks)} task(s).")
+
+    @app.cli.command("sync-all")
+    def sync_all() -> None:
+        """Sync every user with automatic sync on (for cron or a scheduled job)."""
+        results = scheduler.sync_all_users(app, trigger="cron")
+        for r in results:
+            click.echo(f"{r.email}: {'ok' if r.ok else 'FAILED - ' + (r.error or 'unknown error')}")
+        if not results:
+            click.echo("No users have automatic sync turned on with a feed and Google access saved.")
+        if any(not r.ok for r in results):
+            raise SystemExit(1)  # non-zero exit lets cron or the host flag the failure
+
+    if start_scheduler:
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+        scheduler.start_scheduler(app, settings.sync_interval_hours)
 
     @app.errorhandler(CSRFError)
     def csrf_error(_exc):

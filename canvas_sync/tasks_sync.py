@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import tzinfo
 from typing import Any
 
 from googleapiclient.errors import HttpError
@@ -59,19 +60,23 @@ def ensure_tasklist(service: Any, state: SyncState, dry_run: bool) -> bool:
     return True
 
 
-def due_text(item: CanvasItem) -> str:
+def due_text(item: CanvasItem, tz: tzinfo | None = None) -> str:
     # Canvas sends assignments due at 11:59 PM as all-day items (confirmed by Noah).
     if item.all_day:
         return item.start.strftime("%a %b %d, %Y") + " at 11:59 PM"
-    return item.local_start.strftime("%a %b %d, %Y at %I:%M %p")
+    return item.start_in(tz).strftime("%a %b %d, %Y at %I:%M %p")
 
 
-def task_body(item: CanvasItem) -> dict:
+def task_body(item: CanvasItem, tz: tzinfo | None = None) -> dict:
     """The fields we manage. Others (like completed status) are never sent, so
-    updating a task can't un-check it."""
-    due_date = item.start if item.all_day else item.local_start.date()
+    updating a task can't un-check it.
+
+    `tz` is the user's time zone. The due *date* depends on it: 11 PM Eastern is
+    already the next day in UTC.
+    """
+    due_date = item.start if item.all_day else item.start_in(tz).date()
     marker = f"{UID_MARKER}{item.uid}"
-    header = f"Due: {due_text(item)}" + (f"\nCourse: {item.course}" if item.course else "")
+    header = f"Due: {due_text(item, tz)}" + (f"\nCourse: {item.course}" if item.course else "")
     parts = [p for p in (header, item.description, f"Canvas: {item.url}" if item.url else "") if p]
     # Trim the middle, never the marker, so the UID tag always survives.
     notes = "\n\n".join(parts)[: MAX_NOTES - len(marker) - 2] + "\n\n" + marker
@@ -121,7 +126,11 @@ def _update(service: Any, tasklist_id: str, task_id: str, body: dict) -> str:
 
 
 def sync_tasks(
-    service: Any, items: list[CanvasItem], state: SyncState, dry_run: bool = False
+    service: Any,
+    items: list[CanvasItem],
+    state: SyncState,
+    dry_run: bool = False,
+    tz: tzinfo | None = None,
 ) -> TaskSyncResult:
     """Create tasks for new upcoming assignments and update changed ones.
 
@@ -132,7 +141,7 @@ def sync_tasks(
     result = TaskSyncResult(dry_run=dry_run, tasklist_created=ensure_tasklist(service, state, dry_run))
     assignments = [i for i in items if i.kind == "assignment"]
     result.possible_duplicates = _possible_duplicates(assignments)
-    upcoming_uids = {a.uid for a in upcoming(assignments)}
+    upcoming_uids = {a.uid for a in upcoming(assignments, tz=tz)}
 
     new_items = [a for a in assignments if a.uid not in state.tasks and a.uid in upcoming_uids]
     result.skipped_past_due = sum(
@@ -144,7 +153,7 @@ def sync_tasks(
     for item in assignments:
         if item.uid not in state.tasks and item.uid not in upcoming_uids:
             continue  # never synced and already past due
-        body = task_body(item)
+        body = task_body(item, tz)
         new_hash = fingerprint(body)
         entry = state.tasks.get(item.uid)
 

@@ -80,6 +80,23 @@ def test_upcoming_filters_past_items_and_sorts_soonest_first():
     assert [i.title for i in upcoming([later, past, today], now=now)] == ["Today", "Later"]
 
 
+def test_today_is_judged_in_the_users_time_zone():
+    from zoneinfo import ZoneInfo
+
+    # 2099-01-10 02:00 UTC is still Jan 9 in New York.
+    now = datetime(2099, 1, 10, 2, 0, tzinfo=timezone.utc)
+    due_jan_9 = make_item("event-assignment-1", "Due Jan 9", start=date(2099, 1, 9))
+    assert upcoming([due_jan_9], now=now, tz=ZoneInfo("America/New_York")) == [due_jan_9]
+    assert upcoming([due_jan_9], now=now, tz=ZoneInfo("UTC")) == []
+
+
+def test_floating_times_are_read_in_the_users_time_zone():
+    from zoneinfo import ZoneInfo
+
+    floating = make_item("event-calendar-event-1", start=datetime(2099, 3, 1, 9, 0))  # no tzinfo
+    assert floating.start_in(ZoneInfo("America/Chicago")).isoformat() == "2099-03-01T09:00:00-06:00"
+
+
 # --- fetch_feed(): HTTPS, limits, and never leaking the URL ---------------
 
 class FakeResponse:

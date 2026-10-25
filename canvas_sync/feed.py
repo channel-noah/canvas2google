@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, tzinfo
 
 import requests
 from icalendar import Calendar
@@ -40,21 +40,34 @@ class CanvasItem:
     def all_day(self) -> bool:
         return not isinstance(self.start, datetime)
 
+    def start_in(self, tz: tzinfo | None = None) -> datetime:
+        return to_local(self.start, tz)
+
+    def end_in(self, tz: tzinfo | None = None) -> datetime | None:
+        return to_local(self.end, tz) if self.end is not None else None
+
     @property
     def local_start(self) -> datetime:
-        return to_local(self.start)
+        """Start in this computer's time zone."""
+        return self.start_in()
 
     @property
     def local_end(self) -> datetime | None:
-        return to_local(self.end) if self.end is not None else None
+        return self.end_in()
 
 
-def to_local(value: date | datetime) -> datetime:
-    """Convert an iCal date or datetime to a timezone-aware datetime in local time."""
+def to_local(value: date | datetime, tz: tzinfo | None = None) -> datetime:
+    """Convert an iCal date or datetime to a timezone-aware datetime.
+
+    `tz` is the user's time zone; None means this computer's. A server can be in
+    a different time zone from its user, so the web app always passes one.
+    """
     if not isinstance(value, datetime):
         value = datetime.combine(value, time.min)
-    # A naive datetime (no timezone) is interpreted as local time.
-    return value.astimezone()
+    if value.tzinfo is None:
+        # A naive ("floating") time means wall-clock time wherever the user is.
+        return value.replace(tzinfo=tz) if tz else value.astimezone()
+    return value.astimezone(tz) if tz else value.astimezone()
 
 
 def fetch_feed(url: str) -> bytes:
@@ -164,14 +177,16 @@ def parse_feed(data: bytes) -> list[CanvasItem]:
     return items
 
 
-def upcoming(items: list[CanvasItem], now: datetime | None = None) -> list[CanvasItem]:
-    """Items that haven't ended yet, soonest first."""
-    now = now or datetime.now().astimezone()
-    today = now.date()
+def upcoming(
+    items: list[CanvasItem], now: datetime | None = None, tz: tzinfo | None = None
+) -> list[CanvasItem]:
+    """Items that haven't ended yet, soonest first. "Today" is today in `tz`."""
+    now = now or (datetime.now(tz) if tz else datetime.now().astimezone())
+    today = now.astimezone(tz).date() if tz else now.date()
 
     def still_relevant(item: CanvasItem) -> bool:
         if item.all_day:
             return item.start >= today
-        return (item.local_end or item.local_start) >= now
+        return (item.end_in(tz) or item.start_in(tz)) >= now
 
-    return sorted((i for i in items if still_relevant(i)), key=lambda i: i.local_start)
+    return sorted((i for i in items if still_relevant(i)), key=lambda i: i.start_in(tz))

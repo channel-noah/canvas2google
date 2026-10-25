@@ -1,10 +1,40 @@
-"""Test data builders."""
+"""Test data builders and web app helpers."""
 
 from __future__ import annotations
 
+import re
+import sqlite3
 from datetime import date, datetime
 
 from canvas_sync.feed import CanvasItem
+
+ALLOWED = "noah@example.com"
+FEED = "https://school.instructure.com/feeds/calendars/user_SECRETFEED123.ics"
+
+
+def csrf_token(client, path: str = "/settings") -> str:
+    html = client.get(path).get_data(as_text=True)
+    return re.search(r'name="csrf_token" value="([^"]+)"', html).group(1)
+
+
+def db_rows(app, sql: str, *args) -> list[tuple]:
+    conn = sqlite3.connect(app.config["DATABASE_PATH"])
+    try:
+        return conn.execute(sql, args).fetchall()
+    finally:
+        conn.close()
+
+
+def save_feed_and_token(app, user_id: int) -> None:
+    """Give a test user an encrypted feed URL and (fake) Google token."""
+    from webapp.crypto import secret_context
+    from webapp.db import get_db, set_secret
+
+    box = app.config["SECRET_BOX"]
+    with app.app_context():
+        db = get_db()
+        set_secret(db, user_id, "feed_url", box.encrypt(FEED, secret_context(user_id, "feed_url")))
+        set_secret(db, user_id, "google_token", box.encrypt("{}", secret_context(user_id, "google_token")))
 
 
 def make_item(

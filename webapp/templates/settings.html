@@ -19,4 +19,30 @@
     <button class="button primary" type="submit">Save feed URL</button>
   </form>
 </section>
+
+<section class="card narrow">
+  <h2>Sync preferences</h2>
+  <form method="post" action="{{ url_for('views.save_preferences') }}" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="timezone">Your time zone</label>
+    <select id="timezone" name="timezone">
+      {% for value, label in timezones %}
+        <option value="{{ value }}" {% if value == g.user["timezone"] %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <p class="fine">Due dates and "upcoming" are worked out in this time zone, wherever the server runs.</p>
+    <label class="check">
+      <input type="checkbox" name="auto_sync" {% if g.user["auto_sync"] %}checked{% endif %}>
+      Sync automatically every {{ "%g"|format(sync_interval_hours) }} hours
+    </label>
+    <button class="button primary" type="submit">Save preferences</button>
+  </form>
+</section>
+
+<section class="card narrow">
+  <h2>Google connection</h2>
+  <p class="muted">Signed in as {{ g.user["email"] }}. Reconnect if syncs report that Google access
+    expired, or after the app's Google settings change.</p>
+  <a class="button" href="{{ url_for('auth.start', consent='1') }}">Reconnect Google</a>
+</section>
 {% endblock %}

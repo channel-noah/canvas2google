@@ -77,6 +77,11 @@ input[type=password], input[type=text] {
   background: var(--bg); color: var(--text); font: inherit;
 }
 label { font-weight: 600; font-size: 14px; }
+label.check { font-weight: 400; display: flex; gap: 8px; align-items: center; }
+select {
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg); color: var(--text); font: inherit;
+}
 
 .flash { padding: 10px 14px; border-radius: 8px; margin: 0 0 12px; }
 .flash.error { background: var(--error-bg); }

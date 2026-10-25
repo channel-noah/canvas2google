@@ -33,6 +33,7 @@ class Settings:
     redirect_uri: str = "http://localhost:5000/auth/callback"
     database_path: Path = PROJECT_ROOT / "instance" / "canvas2google.db"
     secure_cookies: bool = False  # true once served over HTTPS
+    sync_interval_hours: float = 3.0
 
 
 def load_settings() -> Settings:
@@ -44,6 +45,14 @@ def load_settings() -> Settings:
         raise ConfigError("Missing web app settings in .env: " + ", ".join(missing))
 
     allowed = frozenset(e.strip().lower() for e in env["ALLOWED_EMAILS"].split(",") if e.strip())
+    try:
+        interval = float(os.environ.get("SYNC_INTERVAL_HOURS", Settings.sync_interval_hours))
+    except ValueError:
+        raise ConfigError("SYNC_INTERVAL_HOURS must be a number.") from None
+    if interval < 0.25:
+        # Polling Canvas and Google more often than every 15 minutes gains little
+        # and risks hitting API rate limits.
+        raise ConfigError("SYNC_INTERVAL_HOURS must be at least 0.25 (15 minutes).")
     return Settings(
         secret_key=env["FLASK_SECRET_KEY"],
         encryption_key=env["APP_ENCRYPTION_KEY"],
@@ -53,4 +62,5 @@ def load_settings() -> Settings:
         redirect_uri=os.environ.get("OAUTH_REDIRECT_URI", Settings.redirect_uri),
         database_path=Path(os.environ.get("DATABASE_PATH", str(Settings.database_path))),
         secure_cookies=os.environ.get("SECURE_COOKIES", "false").lower() == "true",
+        sync_interval_hours=interval,
     )

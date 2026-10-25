@@ -8,8 +8,8 @@ from __future__ import annotations
 import dataclasses
 import json
 import sqlite3
-import threading
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from google.auth.exceptions import GoogleAuthError, RefreshError
 from google.oauth2.credentials import Credentials
@@ -25,10 +25,6 @@ from canvas_sync.tasks_sync import TaskSyncResult, sync_tasks
 
 from . import db as store
 from .crypto import SecretBox, SecretError, secret_context
-
-# One sync at a time. Two overlapping runs could both decide an item is new
-# and create it twice.
-_sync_lock = threading.Lock()
 
 
 @dataclass
@@ -58,17 +54,33 @@ def _save_credentials(db: sqlite3.Connection, box: SecretBox, user_id: int, cred
     store.set_secret(db, user_id, "google_token", box.encrypt(creds.to_json(), secret_context(user_id, "google_token")))
 
 
-def run_sync(db: sqlite3.Connection, box: SecretBox, user_id: int, dry_run: bool) -> SyncOutcome:
-    if not _sync_lock.acquire(blocking=False):
+def user_timezone(db: sqlite3.Connection, user_id: int) -> ZoneInfo:
+    user = store.get_user(db, user_id)
+    try:
+        return ZoneInfo(user["timezone"])
+    except (ZoneInfoNotFoundError, ValueError, TypeError):
+        return ZoneInfo(store.DEFAULT_TIMEZONE)
+
+
+def run_sync(
+    db: sqlite3.Connection, box: SecretBox, user_id: int, dry_run: bool, trigger: str = "manual"
+) -> SyncOutcome:
+    # One sync per user at a time, even across processes (scheduler, cron job,
+    # button click). Two overlapping runs could both decide an item is new and
+    # create it twice.
+    lock = f"sync:user:{user_id}"
+    if not store.try_lock(db, lock):
         return SyncOutcome(ok=False, dry_run=dry_run, error="A sync is already running. Try again in a minute.")
     try:
-        return _run_locked(db, box, user_id, dry_run)
+        return _run_locked(db, box, user_id, dry_run, trigger)
     finally:
-        _sync_lock.release()
+        store.release_lock(db, lock)
 
 
-def _run_locked(db: sqlite3.Connection, box: SecretBox, user_id: int, dry_run: bool) -> SyncOutcome:
-    run_id = store.start_run(db, user_id, dry_run)
+def _run_locked(
+    db: sqlite3.Connection, box: SecretBox, user_id: int, dry_run: bool, trigger: str
+) -> SyncOutcome:
+    run_id = store.start_run(db, user_id, dry_run, trigger)
     outcome = SyncOutcome(ok=False, dry_run=dry_run)
     creds = None
     try:
@@ -87,9 +99,10 @@ def _run_locked(db: sqlite3.Connection, box: SecretBox, user_id: int, dry_run: b
                 store.save_state(db, user_id, data)
 
             state = SyncState.from_dict(saved, saver=saver) if saved else SyncState(path=None, saver=saver)
+            tz = user_timezone(db, user_id)
             calendar, tasks = build_services(creds)
-            outcome.events = sync_events(calendar, items, state, dry_run=dry_run)
-            outcome.tasks = sync_tasks(tasks, items, state, dry_run=dry_run)
+            outcome.events = sync_events(calendar, items, state, dry_run=dry_run, tz=tz)
+            outcome.tasks = sync_tasks(tasks, items, state, dry_run=dry_run, tz=tz)
             outcome.ok = True
             if creds.token != token_before:  # the library refreshed the access token
                 _save_credentials(db, box, user_id, creds)

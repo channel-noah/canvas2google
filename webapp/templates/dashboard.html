@@ -19,6 +19,16 @@
     <p class="flash info">Start by adding your Canvas feed URL in <a href="{{ url_for('views.settings_page') }}">Settings</a>.</p>
   {% endif %}
   {% if problem %}<p class="flash error">{{ problem }}</p>{% endif %}
+  {% if last_failed %}
+    <p class="flash error">The last {{ last_failed.trigger }} sync failed: {{ last_failed.error or "unknown error" }}
+      {% if "sign in" in (last_failed.error or "") %}<a href="{{ url_for('auth.start', consent='1') }}">Reconnect Google</a>{% endif %}
+    </p>
+  {% endif %}
+  <p class="fine">
+    {% if g.user["auto_sync"] %}Automatic sync is on: every {{ "%g"|format(sync_interval_hours) }} hours.
+    {% else %}Automatic sync is off.{% endif %}
+    Times shown in {{ g.user["timezone"] }}. <a href="{{ url_for('views.settings_page') }}">Change</a>
+  </p>
 </section>
 
 <section class="card">
@@ -30,7 +40,7 @@
     {% for run in runs %}
       <tr>
         <td>{{ run.started_at.replace("T", " ")[:16] }}</td>
-        <td>{{ "Preview" if run.dry_run else "Sync" }}</td>
+        <td>{{ "Preview" if run.dry_run else "Sync" }}{% if run.trigger != "manual" %} ({{ run.trigger }}){% endif %}</td>
         <td>
           {% if run.ok %}
             {% set e = run.summary.events %}{% set t = run.summary.tasks %}
@@ -59,7 +69,7 @@
     {% for item in items %}
       <tr>
         <td><span class="tag {{ item.kind }}">{{ item.kind }}</span></td>
-        <td class="nowrap">{{ item|when }}</td>
+        <td class="nowrap">{{ item|when(tz) }}</td>
         <td>{{ item.course or "—" }}</td>
         <td>{{ item.title }}</td>
       </tr>
