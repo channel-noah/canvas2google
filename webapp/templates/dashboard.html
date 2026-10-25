@@ -25,7 +25,7 @@
     </p>
   {% endif %}
   <p class="fine">
-    {% if g.user["auto_sync"] %}Automatic sync is on: every {{ "%g"|format(sync_interval_hours) }} hours.
+    {% if g.user["auto_sync"] %}Automatic sync is on: {{ auto_sync_schedule }}.
     {% else %}Automatic sync is off.{% endif %}
     Times shown in {{ g.user["timezone"] }}. <a href="{{ url_for('views.settings_page') }}">Change</a>
   </p>

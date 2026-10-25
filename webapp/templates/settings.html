@@ -33,7 +33,7 @@
     <p class="fine">Due dates and "upcoming" are worked out in this time zone, wherever the server runs.</p>
     <label class="check">
       <input type="checkbox" name="auto_sync" {% if g.user["auto_sync"] %}checked{% endif %}>
-      Sync automatically every {{ "%g"|format(sync_interval_hours) }} hours
+      Sync automatically {{ auto_sync_schedule }}
     </label>
     <button class="button primary" type="submit">Save preferences</button>
   </form>

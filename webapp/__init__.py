@@ -82,7 +82,7 @@ def create_app(settings: Settings | None = None, start_scheduler: bool = False) 
     app.register_blueprint(tasks.bp)
     csrf.exempt(tasks.bp)  # called by the cron service with a secret token, not a browser form
     app.add_template_filter(when_text, "when")
-    app.add_template_global(settings.sync_interval_hours, "sync_interval_hours")
+    app.add_template_global(settings.auto_sync_schedule, "auto_sync_schedule")
     app.add_template_global(settings.site_verification, "site_verification")
 
     @app.after_request

@@ -137,6 +137,12 @@ def test_vercel_refuses_to_start_on_sqlite(monkeypatch):
     assert load_settings().database_url.startswith("postgresql")
 
 
+def test_schedule_wording_matches_where_it_runs(app, logged_in):
+    assert "every 3 hours" in logged_in.get("/settings").get_data(as_text=True)
+    vercel = create_app(dataclasses.replace(app.config["SETTINGS"], on_vercel=True))
+    assert vercel.jinja_env.globals["auto_sync_schedule"].startswith("once a day")
+
+
 def test_short_cron_secret_is_rejected(monkeypatch):
     from canvas_sync.config import ConfigError
     from webapp.settings import load_settings

@@ -36,6 +36,14 @@ class Settings:
     sync_interval_hours: float = 3.0
     cron_secret: str | None = None  # enables /tasks/sync-all when set
     site_verification: str | None = None  # Google Search Console meta-tag value
+    on_vercel: bool = False  # automatic sync is Vercel's daily cron, not the in-app scheduler
+
+    @property
+    def auto_sync_schedule(self) -> str:
+        """How often automatic sync runs, in words, for the Settings and Dashboard pages."""
+        if self.on_vercel:
+            return "once a day (early morning, Eastern)"
+        return f"every {self.sync_interval_hours:g} hours"
 
 
 def load_settings() -> Settings:
@@ -76,4 +84,5 @@ def load_settings() -> Settings:
         sync_interval_hours=interval,
         cron_secret=cron_secret,
         site_verification=os.environ.get("GOOGLE_SITE_VERIFICATION", "").strip() or None,
+        on_vercel=bool(os.environ.get("VERCEL")),
     )
