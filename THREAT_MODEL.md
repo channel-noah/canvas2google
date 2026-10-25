@@ -103,7 +103,7 @@ There are five trust boundaries:
 | R9 | **Platform trust.** Vercel, Neon and GitHub staff or breaches. | Accepted for a free personal project. Encryption at rest limits what a database-only breach reveals. |
 | R10 | **No application-level rate limiting.** | Sign-in is delegated to Google, the cron secret is unguessable, and Vercel provides platform DDoS protection. Revisit (per-IP limits) before the public launch. |
 | R11 | **Platform request logs may record the `/auth/callback?code=…` URL.** | The local filter doesn't control Vercel's own logs. The code is single-use, expires in minutes, and is useless without the client secret and the PKCE verifier. |
-| R12 | **Admin account takeover** (GitHub, Vercel, Neon, Google). | **Action item:** enable 2-factor authentication on all four. Vercel's GitHub app is limited to this one repo. |
+| R12 | **Admin account takeover** (GitHub, Vercel, Neon, Google). | **2-factor authentication is on for GitHub, Vercel and Neon** (2026-10-25). **Google is still pending:** Google's risk checks blocked enabling 2-Step Verification on an account and device it doesn't yet trust; retry from a long-used device. Until then, Google relies on a long, unique password stored in a password manager, plus watching the account's security activity. Vercel's GitHub app is limited to this one repo. |
 | R13 | **Daily sync only, best effort.** Vercel Hobby cron runs once a day within a one-hour window, and runs can occasionally be skipped or repeated. | The sync is idempotent and locked, so repeats are harmless. "Sync now" covers urgent changes. |
 | R14 | **Production secrets on the developer's PC** (`.env.production`, git-ignored). | Needed for setup. **Action item:** move them to a password manager and delete the file. |
 
