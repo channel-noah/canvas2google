@@ -27,7 +27,7 @@ itsdangerous==2.2.0
 Jinja2==3.1.6
 MarkupSafe==3.0.4
 oauthlib==4.0.0
-opentelemetry-api==1.45.1
+opentelemetry-api==1.45.2
 proto-plus==1.29.0
 protobuf==7.36.2
 psycopg-binary==3.3.6
