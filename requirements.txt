@@ -31,7 +31,7 @@ opentelemetry-api==1.45.1
 proto-plus==1.29.0
 protobuf==7.36.2
 psycopg-binary==3.3.6
-pyasn1==0.6.4
+pyasn1==0.6.5
 pyasn1_modules==0.4.2
 pycparser==3.12
 pyparsing==3.3.3
